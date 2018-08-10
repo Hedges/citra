@@ -62,6 +62,7 @@ const u32 SP_REGISTER = 13;
 const u32 LR_REGISTER = 14;
 const u32 PC_REGISTER = 15;
 const u32 CPSR_REGISTER = 25;
+const u32 D0_REGISTER = 26;
 const u32 FPSCR_REGISTER = 58;
 
 // For sample XML files see the GDB source /gdb/features
@@ -125,7 +126,6 @@ static u8 command_buffer[GDB_BUFFER_SIZE];
 static u32 command_length;
 
 static u32 latest_signal = 0;
-static bool step_break = false;
 static bool memory_break = false;
 
 Kernel::Thread* current_thread = nullptr;
@@ -167,6 +167,40 @@ static Kernel::Thread* FindThreadById(int id) {
         }
     }
     return nullptr;
+}
+
+static u32 RegRead(std::size_t id, Kernel::Thread* thread = nullptr) {
+    if (!thread) {
+        return 0;
+    }
+
+    if (id <= PC_REGISTER) {
+        return thread->context.get()->GetCpuRegister(id);
+    } else if (id == CPSR_REGISTER) {
+        return thread->context.get()->GetCpsr();
+    } else if (id > CPSR_REGISTER && id < FPSCR_REGISTER) {
+        return thread->context.get()->GetFpuRegister(id - (CPSR_REGISTER + 1));
+    } else if (id == FPSCR_REGISTER) {
+        return thread->context.get()->GetFpscr();
+    } else {
+        return 0;
+    }
+}
+
+static void RegWrite(std::size_t id, u32 val, Kernel::Thread* thread = nullptr) {
+    if (!thread) {
+        return;
+    }
+
+    if (id <= PC_REGISTER) {
+        return thread->context.get()->SetCpuRegister(id, val);
+    } else if (id == CPSR_REGISTER) {
+        return thread->context.get()->SetCpsr(val);
+    } else if (id > CPSR_REGISTER && id < FPSCR_REGISTER) {
+        return thread->context.get()->SetFpuRegister(id - (CPSR_REGISTER + 1), val);
+    } else if (id == FPSCR_REGISTER) {
+        return thread->context.get()->SetFpscr(val);
+    }
 }
 
 /**
@@ -786,7 +820,7 @@ void Break(bool is_memory_break) {
 static void Step() {
     step_loop = true;
     halt_loop = true;
-    step_break = true;
+    send_trap = true;
     Core::CPU().ClearInstructionCache();
 }
 
@@ -801,7 +835,6 @@ bool IsMemoryBreak() {
 /// Tell the CPU to continue executing.
 static void Continue() {
     memory_break = false;
-    step_break = false;
     step_loop = false;
     halt_loop = false;
     Core::CPU().ClearInstructionCache();
