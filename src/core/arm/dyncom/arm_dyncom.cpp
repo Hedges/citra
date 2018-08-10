@@ -146,6 +146,7 @@ void ARM_DynCom::SetCP15Register(CP15Register reg, u32 value) {
 void ARM_DynCom::ExecuteInstructions(u64 num_instructions) {
     state->NumInstrsToExecute = num_instructions;
     unsigned ticks_executed = InterpreterMainLoop(state.get());
+    state.get()->ServeBreak();
     CoreTiming::AddTicks(ticks_executed);
 }
 

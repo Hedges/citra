@@ -79,6 +79,7 @@ static void InterpreterFallback(u32 pc, Dynarmic::Jit* jit, void* user_arg) {
     state->NumInstrsToExecute = 1;
 
     InterpreterMainLoop(state);
+    state->ServeBreak();
 
     bool is_thumb = (state->Cpsr & (1 << 5)) != 0;
     state->Reg[15] &= (is_thumb ? 0xFFFFFFFE : 0xFFFFFFFC);
