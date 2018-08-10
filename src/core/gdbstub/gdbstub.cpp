@@ -160,7 +160,7 @@ static std::map<u32, Breakpoint> breakpoints_write;
 static Kernel::Thread* FindThreadById(int id) {
     const auto& threads = Kernel::GetThreadList();
     for (auto& thread : threads) {
-        //if (thread->status != THREADSTATUS_RUNNING)
+        // if (thread->status != THREADSTATUS_RUNNING)
         //    continue;
         if (thread->GetThreadId() == static_cast<u32>(id)) {
             return thread.get();
@@ -323,7 +323,7 @@ static void RemoveBreakpoint(BreakpointType type, PAddr addr) {
         LOG_DEBUG(Debug_GDBStub, "gdb: removed a breakpoint: {:08x} bytes at {:08x} of type {}\n",
                   bp->second.len, bp->second.addr, static_cast<int>(type));
         Memory::WriteBlock(bp->second.addr, bp->second.inst.data(), bp->second.inst.size());
-        Core::CPU().InvalidateCacheRange(addr, 4);
+        Core::CPU().ClearInstructionCache();
         p.erase(addr);
     }
 }
@@ -448,7 +448,7 @@ static void HandleQuery() {
         std::string val = "m";
         const auto& threads = Kernel::GetThreadList();
         for (const auto& thread : threads) {
-            //if (thread->status != THREADSTATUS_RUNNING)
+            // if (thread->status != THREADSTATUS_RUNNING)
             //    continue;
             val += fmt::format("{:x}", thread->GetThreadId());
             val += ",";
@@ -463,7 +463,7 @@ static void HandleQuery() {
         buffer += "<threads>";
         const auto& threads = Kernel::GetThreadList();
         for (const auto& thread : threads) {
-            //if (thread->status != THREADSTATUS_RUNNING)
+            // if (thread->status != THREADSTATUS_RUNNING)
             //    continue;
             buffer += fmt::format(R"*(<thread id="{:x}" name="Thread {:x}"></thread>)*",
                                   thread->GetThreadId(), thread->GetThreadId());
@@ -772,7 +772,7 @@ static void WriteMemory() {
 
     GdbHexToMem(data.data(), len_pos + 1, len);
     Memory::WriteBlock(addr, data.data(), len);
-    Core::CPU().InvalidateCacheRange(addr, 4);
+    Core::CPU().ClearInstructionCache();
     SendReply("OK");
 }
 
@@ -787,7 +787,7 @@ static void Step() {
     step_loop = true;
     halt_loop = true;
     step_break = true;
-    Core::CPU().InvalidateCacheRange(Core::CPU().GetPC(), 4);
+    Core::CPU().ClearInstructionCache();
 }
 
 bool IsMemoryBreak() {
@@ -804,7 +804,7 @@ static void Continue() {
     step_break = false;
     step_loop = false;
     halt_loop = false;
-    Core::CPU().InvalidateCacheRange(Core::CPU().GetPC(), 4);
+    Core::CPU().ClearInstructionCache();
 }
 
 /**
@@ -824,7 +824,7 @@ static bool CommitBreakpoint(BreakpointType type, PAddr addr, u32 len) {
     Memory::ReadBlock(addr, breakpoint.inst.data(), breakpoint.inst.size());
     static constexpr std::array<u8, 4> btrap{0x70, 0x00, 0x20, 0xe1};
     Memory::WriteBlock(addr, btrap.data(), btrap.size());
-    Core::CPU().InvalidateCacheRange(addr, 4);
+    Core::CPU().ClearInstructionCache();
     p.insert({addr, breakpoint});
 
     LOG_DEBUG(Debug_GDBStub, "gdb: added {} breakpoint: {:08x} bytes at {:08x}\n",
