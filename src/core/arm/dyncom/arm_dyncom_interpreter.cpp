@@ -923,6 +923,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
     MICROPROFILE_SCOPE(DynCom_Execute);
 
     GDBStub::BreakpointAddress breakpoint_data;
+    bool last_bkpt_hit = false;
 
 #undef RM
 #undef RS
@@ -956,7 +957,7 @@ unsigned InterpreterMainLoop(ARMul_State* cpu) {
     if (GDBStub::IsServerEnabled()) {                                                              \
         if (GDBStub::IsMemoryBreak() || (breakpoint_data.type != GDBStub::BreakpointType::None &&  \
                                          PC == breakpoint_data.address)) {                         \
-            GDBStub::Break();                                                                      \
+            last_bkpt_hit = true;                                                                  \
             goto END;                                                                              \
         }                                                                                          \
     }
@@ -4575,6 +4576,16 @@ YIELD_INST : {
 END : {
     SAVE_NZCVT;
     cpu->NumInstrsToExecute = 0;
+
+    if (GDBStub::IsServerEnabled()) {
+        Kernel::Thread* thread = Kernel::GetCurrentThread();
+        if (last_bkpt_hit || GDBStub::GetCpuStepFlag()) {
+            last_bkpt_hit = false;
+            GDBStub::Break();
+            GDBStub::SendTrap(thread, 5);
+        }
+    }
+
     return num_instrs;
 }
 INIT_INST_LENGTH : {
