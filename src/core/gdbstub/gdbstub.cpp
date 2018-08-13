@@ -178,8 +178,8 @@ static u32 RegRead(std::size_t id, Kernel::Thread* thread = nullptr) {
         return thread->context.get()->GetCpuRegister(id);
     } else if (id == CPSR_REGISTER) {
         return thread->context.get()->GetCpsr();
-    } else if (id > CPSR_REGISTER && id < FPSCR_REGISTER) {
-        return thread->context.get()->GetFpuRegister(id - (CPSR_REGISTER + 1));
+    } else if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
+        return thread->context.get()->GetFpuRegister(id - D0_REGISTER);
     } else if (id == FPSCR_REGISTER) {
         return thread->context.get()->GetFpscr();
     } else {
@@ -196,8 +196,8 @@ static void RegWrite(std::size_t id, u32 val, Kernel::Thread* thread = nullptr) 
         return thread->context.get()->SetCpuRegister(id, val);
     } else if (id == CPSR_REGISTER) {
         return thread->context.get()->SetCpsr(val);
-    } else if (id > CPSR_REGISTER && id < FPSCR_REGISTER) {
-        return thread->context.get()->SetFpuRegister(id - (CPSR_REGISTER + 1), val);
+    } else if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
+        return thread->context.get()->SetFpuRegister(id - D0_REGISTER, val);
     } else if (id == FPSCR_REGISTER) {
         return thread->context.get()->SetFpscr(val);
     }
@@ -659,15 +659,13 @@ static void ReadRegister() {
     }
 
     if (id <= PC_REGISTER) {
-        IntToGdbHex(reply, Core::CPU().GetReg(id));
+        IntToGdbHex(reply, RegRead(id, current_thread));
     } else if (id == CPSR_REGISTER) {
-        IntToGdbHex(reply, Core::CPU().GetCPSR());
-    } else if (id > CPSR_REGISTER && id < FPSCR_REGISTER) {
-        IntToGdbHex(reply, Core::CPU().GetVFPReg(
-                               id - CPSR_REGISTER -
-                               1)); // VFP registers should start at 26, so one after CSPR_REGISTER
+        IntToGdbHex(reply, RegRead(id, current_thread));
+    } else if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
+        IntToGdbHex(reply, RegRead(id, current_thread));
     } else if (id == FPSCR_REGISTER) {
-        IntToGdbHex(reply, Core::CPU().GetVFPSystemReg(VFP_FPSCR)); // Get FPSCR
+        IntToGdbHex(reply, RegRead(id, current_thread));
         IntToGdbHex(reply + 8, 0);
     } else {
         return SendReply("E01");
@@ -684,22 +682,22 @@ static void ReadRegisters() {
     u8* bufptr = buffer;
 
     for (u32 reg = 0; reg <= PC_REGISTER; reg++) {
-        IntToGdbHex(bufptr + reg * CHAR_BIT, Core::CPU().GetReg(reg));
+        IntToGdbHex(bufptr + reg * 8, RegRead(reg, current_thread));
     }
 
-    bufptr += (16 * CHAR_BIT);
+    bufptr += 16 * 8;
 
-    IntToGdbHex(bufptr, Core::CPU().GetCPSR());
+    IntToGdbHex(bufptr, RegRead(CPSR_REGISTER, current_thread));
 
-    bufptr += CHAR_BIT;
+    bufptr += 8;
 
-    for (u32 reg = 0; reg <= 31; reg++) {
-        IntToGdbHex(bufptr + reg * CHAR_BIT, Core::CPU().GetVFPReg(reg));
+    for (u32 reg = D0_REGISTER; reg < FPSCR_REGISTER; reg++) {
+        IntToGdbHex(bufptr + reg * 8, RegRead(reg, current_thread));
     }
 
-    bufptr += (32 * CHAR_BIT);
+    bufptr += 32 * 8;
 
-    IntToGdbHex(bufptr, Core::CPU().GetVFPSystemReg(VFP_FPSCR));
+    IntToGdbHex(bufptr, RegRead(FPSCR_REGISTER, current_thread));
 
     SendReply(reinterpret_cast<char*>(buffer));
 }
