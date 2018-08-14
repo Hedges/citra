@@ -203,6 +203,31 @@ static void RegWrite(std::size_t id, u32 val, Kernel::Thread* thread = nullptr) 
     }
 }
 
+static u64 FpuRead(std::size_t id, Kernel::Thread* thread = nullptr) {
+    if (!thread) {
+        return 0;
+    }
+
+    if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
+        u64 ret = thread->context.get()->GetFpuRegister(2 * (id - D0_REGISTER));
+        ret |= (u64)thread->context.get()->GetFpuRegister(2 * (id - D0_REGISTER) + 1) << 32;
+        return ret;
+    } else {
+        return 0;
+    }
+}
+
+static void FpuWrite(std::size_t id, u64 val, Kernel::Thread* thread = nullptr) {
+    if (!thread) {
+        return;
+    }
+
+    if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
+        thread->context.get()->SetFpuRegister(2 * (id - D0_REGISTER), (u32)val);
+        thread->context.get()->SetFpuRegister(2 * (id - D0_REGISTER) + 1, val >> 32);
+    }
+}
+
 /**
  * Turns hex string character into the equivalent byte.
  *
@@ -303,6 +328,35 @@ static u32 GdbHexToInt(const u8* src) {
     for (int i = 0; i < 8; i += 2) {
         output = (output << 4) | HexCharToValue(src[7 - i - 1]);
         output = (output << 4) | HexCharToValue(src[7 - i]);
+    }
+
+    return output;
+}
+
+/**
+ * Convert a u64 into a gdb-formatted hex string.
+ *
+ * @param dest Pointer to buffer to store output hex string characters.
+ * @param v    Value to convert.
+ */
+static void LongToGdbHex(u8* dest, u64 v) {
+    for (int i = 0; i < 16; i += 2) {
+        dest[i + 1] = NibbleToHex(static_cast<u8>(v >> (4 * i)));
+        dest[i] = NibbleToHex(static_cast<u8>(v >> (4 * (i + 1))));
+    }
+}
+
+/**
+ * Convert a gdb-formatted hex string into a u64.
+ *
+ * @param src Pointer to hex string.
+ */
+static u64 GdbHexToLong(const u8* src) {
+    u64 output = 0;
+
+    for (int i = 0; i < 16; i += 2) {
+        output = (output << 4) | HexCharToValue(src[15 - i - 1]);
+        output = (output << 4) | HexCharToValue(src[15 - i]);
     }
 
     return output;
@@ -663,7 +717,7 @@ static void ReadRegister() {
     } else if (id == CPSR_REGISTER) {
         IntToGdbHex(reply, RegRead(id, current_thread));
     } else if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
-        IntToGdbHex(reply, RegRead(id, current_thread));
+        LongToGdbHex(reply, FpuRead(id, current_thread));
     } else if (id == FPSCR_REGISTER) {
         IntToGdbHex(reply, RegRead(id, current_thread));
         IntToGdbHex(reply + 8, 0);
@@ -692,10 +746,10 @@ static void ReadRegisters() {
     bufptr += 8;
 
     for (u32 reg = D0_REGISTER; reg < FPSCR_REGISTER; reg++) {
-        IntToGdbHex(bufptr + reg * 8, RegRead(reg, current_thread));
+        LongToGdbHex(bufptr + reg * 16, FpuRead(reg, current_thread));
     }
 
-    bufptr += 32 * 8;
+    bufptr += 32 * 16;
 
     IntToGdbHex(bufptr, RegRead(FPSCR_REGISTER, current_thread));
 
