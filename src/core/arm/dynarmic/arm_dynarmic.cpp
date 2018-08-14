@@ -235,6 +235,7 @@ void ARM_Dynarmic::ClearInstructionCache() {
     for (const auto& j : jits) {
         j.second->ClearCache();
     }
+    interpreter_state->instruction_cache.clear();
 }
 
 void ARM_Dynarmic::InvalidateCacheRange(u32 start_address, size_t length) {
