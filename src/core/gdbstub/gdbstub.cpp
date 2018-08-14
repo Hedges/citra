@@ -725,6 +725,8 @@ static void WriteRegister() {
         return SendReply("E01");
     }
 
+    Core::CPU().LoadContext(current_thread->context);
+
     SendReply("OK");
 }
 
@@ -752,6 +754,8 @@ static void WriteRegisters() {
             Core::CPU().SetVFPSystemReg(VFP_FPSCR, GdbHexToInt(buffer_ptr + i * CHAR_BIT));
         }
     }
+
+    Core::CPU().LoadContext(current_thread->context);
 
     SendReply("OK");
 }
@@ -816,6 +820,10 @@ void Break(bool is_memory_break) {
 
 /// Tell the CPU that it should perform a single step.
 static void Step() {
+    if (command_length > 1) {
+        RegWrite(PC_REGISTER, GdbHexToInt(command_buffer + 1), current_thread);
+        Core::CPU().LoadContext(current_thread->context);
+    }
     step_loop = true;
     halt_loop = true;
     send_trap = true;
