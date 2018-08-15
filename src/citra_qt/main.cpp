@@ -30,6 +30,7 @@
 #include "citra_qt/debugger/graphics/graphics_surface.h"
 #include "citra_qt/debugger/graphics/graphics_tracing.h"
 #include "citra_qt/debugger/graphics/graphics_vertex_shader.h"
+#include "citra_qt/debugger/lle_service_modules.h"
 #include "citra_qt/debugger/profiler.h"
 #include "citra_qt/debugger/registers.h"
 #include "citra_qt/debugger/wait_tree.h"
@@ -77,37 +78,23 @@ enum class CalloutFlag : uint32_t {
     Telemetry = 0x1,
 };
 
-static void ShowCalloutMessage(const QString& message, CalloutFlag flag) {
-    if (UISettings::values.callout_flags & static_cast<uint32_t>(flag)) {
+void GMainWindow::ShowTelemetryCallout() {
+    if (UISettings::values.callout_flags & static_cast<uint32_t>(CalloutFlag::Telemetry)) {
         return;
     }
 
-    UISettings::values.callout_flags |= static_cast<uint32_t>(flag);
-
-    QMessageBox msg;
-    msg.setText(message);
-    msg.setStandardButtons(QMessageBox::Ok);
-    msg.setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    msg.setStyleSheet("QLabel{min-width: 900px;}");
-    msg.exec();
-}
-
-void GMainWindow::ShowCallouts() {
+    UISettings::values.callout_flags |= static_cast<uint32_t>(CalloutFlag::Telemetry);
     static const QString telemetry_message =
-        tr("To help improve Citra, the Citra Team collects anonymous usage data. No private or "
-           "personally identifying information is collected. This data helps us to understand how "
-           "people use Citra and prioritize our efforts. Furthermore, it helps us to more easily "
-           "identify emulation bugs and performance issues. This data includes:<ul><li>Information"
-           " about the version of Citra you are using</li><li>Performance data about the games you "
-           "play</li><li>Your configuration settings</li><li>Information about your computer "
-           "hardware</li><li>Emulation errors and crash information</li></ul>By default, this "
-           "feature is enabled. To disable this feature, click 'Emulation' from the menu and then "
-           "select 'Configure...'. Then, on the 'Web' tab, uncheck 'Share anonymous usage data with"
-           " the Citra team'. <br/><br/>By using this software, you agree to the above terms.<br/>"
-           "<br/><a href='https://citra-emu.org/entry/telemetry-and-why-thats-a-good-thing/'>Learn "
-           "more</a>");
-    ShowCalloutMessage(telemetry_message, CalloutFlag::Telemetry);
+        tr("<a href='https://citra-emu.org/entry/telemetry-and-why-thats-a-good-thing/'>Anonymous "
+           "data is collected</a> to help improve Citra. "
+           "<br/><br/>Would you like to share your usage data with us?");
+    if (QMessageBox::question(this, tr("Telemetry"), telemetry_message) != QMessageBox::Yes) {
+        Settings::values.enable_telemetry = false;
+        Settings::Apply();
+    }
 }
+
+const int GMainWindow::max_recent_files_item;
 
 GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr) {
     Log::Filter log_filter;
@@ -157,7 +144,7 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr) {
     game_list->PopulateAsync(UISettings::values.game_dirs);
 
     // Show one-time "callout" messages to the user
-    ShowCallouts();
+    ShowTelemetryCallout();
 
     if (UISettings::values.check_for_update_on_start) {
         CheckForUpdates();
@@ -302,6 +289,15 @@ void GMainWindow::InitializeDebugWidgets() {
             &WaitTreeWidget::OnEmulationStarting);
     connect(this, &GMainWindow::EmulationStopping, waitTreeWidget,
             &WaitTreeWidget::OnEmulationStopping);
+
+    lleServiceModulesWidget = new LLEServiceModulesWidget(this);
+    addDockWidget(Qt::RightDockWidgetArea, lleServiceModulesWidget);
+    lleServiceModulesWidget->hide();
+    debug_menu->addAction(lleServiceModulesWidget->toggleViewAction());
+    connect(this, &GMainWindow::EmulationStarting,
+            [this] { lleServiceModulesWidget->setDisabled(true); });
+    connect(this, &GMainWindow::EmulationStopping, waitTreeWidget,
+            [this] { lleServiceModulesWidget->setDisabled(false); });
 }
 
 void GMainWindow::InitializeRecentFileMenuActions() {
@@ -594,11 +590,10 @@ void GMainWindow::OnUpdateFound(bool found, bool error) {
 void GMainWindow::ShowUpdatePrompt() {
     defer_update_prompt = false;
 
-    auto result = QMessageBox::question(
-        this, tr("Update available!"),
-        tr("An update for Citra is available. Do you wish to install it now?<br /><br />"
-           "This <b>will</b> terminate emulation, if it is running."),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    auto result =
+        QMessageBox::question(this, tr("Update Available"),
+                              tr("An update is available. Would you like to install it now?"),
+                              QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
 
     if (result == QMessageBox::Yes) {
         updater->LaunchUIOnExit();
@@ -607,7 +602,7 @@ void GMainWindow::ShowUpdatePrompt() {
 }
 
 void GMainWindow::ShowNoUpdatePrompt() {
-    QMessageBox::information(this, tr("No update found"), tr("No update has been found for Citra."),
+    QMessageBox::information(this, tr("No Update Found"), tr("No update is found."),
                              QMessageBox::Ok, QMessageBox::Ok);
 }
 
@@ -624,7 +619,7 @@ bool GMainWindow::LoadROM(const QString& filename) {
     render_window->MakeCurrent();
 
     if (!gladLoadGL()) {
-        QMessageBox::critical(this, tr("Error while initializing OpenGL 3.3 Core!"),
+        QMessageBox::critical(this, tr("OpenGL 3.3 Unsupported"),
                               tr("Your GPU may not support OpenGL 3.3, or you do not "
                                  "have the latest graphics driver."));
         return false;
@@ -638,44 +633,53 @@ bool GMainWindow::LoadROM(const QString& filename) {
         switch (result) {
         case Core::System::ResultStatus::ErrorGetLoader:
             LOG_CRITICAL(Frontend, "Failed to obtain loader for {}!", filename.toStdString());
-            QMessageBox::critical(this, tr("Error while loading ROM!"),
-                                  tr("The ROM format is not supported."));
+            QMessageBox::critical(
+                this, tr("Invalid ROM Format"),
+                tr("Your ROM format is not supported.<br/>Please follow the guides to redump your "
+                   "<a href='https://citra-emu.org/wiki/dumping-game-cartridges/'>game "
+                   "cartridges</a> or "
+                   "<a href='https://citra-emu.org/wiki/dumping-installed-titles/'>installed "
+                   "titles</a>."));
             break;
 
         case Core::System::ResultStatus::ErrorSystemMode:
             LOG_CRITICAL(Frontend, "Failed to load ROM!");
-            QMessageBox::critical(this, tr("Error while loading ROM!"),
-                                  tr("Could not determine the system mode."));
+            QMessageBox::critical(
+                this, tr("ROM Corrupted"),
+                tr("Your ROM is corrupted. <br/>Please follow the guides to redump your "
+                   "<a href='https://citra-emu.org/wiki/dumping-game-cartridges/'>game "
+                   "cartridges</a> or "
+                   "<a href='https://citra-emu.org/wiki/dumping-installed-titles/'>installed "
+                   "titles</a>."));
             break;
 
         case Core::System::ResultStatus::ErrorLoader_ErrorEncrypted: {
             QMessageBox::critical(
-                this, tr("Error while loading ROM!"),
-                tr("The game that you are trying to load must be decrypted before being used with "
-                   "Citra. A real 3DS is required.<br/><br/>"
-                   "For more information on dumping and decrypting games, please see the following "
-                   "wiki pages: <ul>"
-                   "<li><a href='https://citra-emu.org/wiki/dumping-game-cartridges/'>Dumping Game "
-                   "Cartridges</a></li>"
-                   "<li><a href='https://citra-emu.org/wiki/dumping-installed-titles/'>Dumping "
-                   "Installed Titles</a></li>"
-                   "</ul>"));
+                this, tr("ROM Encrypted"),
+                tr("Your ROM is encrypted. <br/>Please follow the guides to redump your "
+                   "<a href='https://citra-emu.org/wiki/dumping-game-cartridges/'>game "
+                   "cartridges</a> or "
+                   "<a href='https://citra-emu.org/wiki/dumping-installed-titles/'>installed "
+                   "titles</a>."));
             break;
         }
         case Core::System::ResultStatus::ErrorLoader_ErrorInvalidFormat:
-            QMessageBox::critical(this, tr("Error while loading ROM!"),
-                                  tr("The ROM format is not supported."));
+            QMessageBox::critical(
+                this, tr("Invalid ROM Format"),
+                tr("Your ROM format is not supported.<br/>Please follow the guides to redump your "
+                   "<a href='https://citra-emu.org/wiki/dumping-game-cartridges/'>game "
+                   "cartridges</a> or "
+                   "<a href='https://citra-emu.org/wiki/dumping-installed-titles/'>installed "
+                   "titles</a>."));
             break;
 
         case Core::System::ResultStatus::ErrorVideoCore:
             QMessageBox::critical(
-                this, tr("An error occured in the video core."),
-                tr("Citra has encountered an error while running the video core, please see the "
-                   "log for more details."
-                   "For more information on accessing the log, please see the following page: "
-                   "<a href='https://community.citra-emu.org/t/how-to-upload-the-log-file/296'>How "
-                   "to "
-                   "Upload the Log File</a>."
+                this, tr("Video Core Error"),
+                tr("An error has occured. Please <a "
+                   "href='https://community.citra-emu.org/t/how-to-upload-the-log-file/296'>see "
+                   "the "
+                   "log</a> for more details. "
                    "Ensure that you have the latest graphics drivers for your GPU."));
 
             break;
@@ -808,11 +812,11 @@ void GMainWindow::StoreRecentFile(const QString& filename) {
 }
 
 void GMainWindow::UpdateRecentFiles() {
-    unsigned int num_recent_files =
-        std::min(UISettings::values.recent_files.size(), static_cast<int>(max_recent_files_item));
+    const int num_recent_files =
+        std::min(UISettings::values.recent_files.size(), max_recent_files_item);
 
-    for (unsigned int i = 0; i < num_recent_files; i++) {
-        QString text = QString("&%1. %2").arg(i + 1).arg(
+    for (int i = 0; i < num_recent_files; i++) {
+        const QString text = QString("&%1. %2").arg(i + 1).arg(
             QFileInfo(UISettings::values.recent_files[i]).fileName());
         actions_recent_files[i]->setText(text);
         actions_recent_files[i]->setData(UISettings::values.recent_files[i]);
@@ -824,12 +828,8 @@ void GMainWindow::UpdateRecentFiles() {
         actions_recent_files[j]->setVisible(false);
     }
 
-    // Grey out the recent files menu if the list is empty
-    if (num_recent_files == 0) {
-        ui.menu_recent_files->setEnabled(false);
-    } else {
-        ui.menu_recent_files->setEnabled(true);
-    }
+    // Enable the recent files menu if the list isn't empty
+    ui.menu_recent_files->setEnabled(num_recent_files != 0);
 }
 
 void GMainWindow::OnGameListLoadFile(QString game_path) {
@@ -1022,9 +1022,8 @@ void GMainWindow::OnMenuRecentFile() {
     QAction* action = qobject_cast<QAction*>(sender());
     assert(action);
 
-    QString filename = action->data().toString();
-    QFileInfo file_info(filename);
-    if (file_info.exists()) {
+    const QString filename = action->data().toString();
+    if (QFileInfo::exists(filename)) {
         BootGame(filename);
     } else {
         // Display an error message and remove the file from the list.
@@ -1069,12 +1068,9 @@ void GMainWindow::OnMenuReportCompatibility() {
         CompatDB compatdb{this};
         compatdb.exec();
     } else {
-        QMessageBox::critical(
-            this, tr("Missing Citra Account"),
-            tr("In order to submit a game compatibility test case, you must link your Citra "
-               "account.<br><br/>To link your Citra account, go to Emulation &gt; Configuration "
-               "&gt; "
-               "Web."));
+        QMessageBox::critical(this, tr("Missing Citra Account"),
+                              tr("You must link your Citra account to submit test cases."
+                                 "<br/>Go to Emulation &gt; Configure... &gt; Web to do so."));
     }
 }
 
@@ -1242,53 +1238,52 @@ void GMainWindow::OnCoreError(Core::System::ResultStatus result, std::string det
     QMessageBox::StandardButton answer;
     QString status_message;
     const QString common_message =
-        tr("The game you are trying to load requires additional files from your 3DS to be dumped "
-           "before playing.<br/><br/>For more information on dumping these files, please see the "
-           "following wiki page: <a "
+        tr("%1 is missing. Please <a "
            "href='https://citra-emu.org/wiki/"
-           "dumping-system-archives-and-the-shared-fonts-from-a-3ds-console/'>Dumping System "
-           "Archives and the Shared Fonts from a 3DS Console</a>.<br/><br/>Would you like to quit "
-           "back to the game list? Continuing emulation may result in crashes, corrupted save "
-           "data, or other bugs.");
+           "dumping-system-archives-and-the-shared-fonts-from-a-3ds-console/'>dump your "
+           "system archives</a>.<br/>Continuing emulation may result in crashes and bugs.");
+    QString title, message;
     switch (result) {
     case Core::System::ResultStatus::ErrorSystemFiles: {
-        QString message = "Citra was unable to locate a 3DS system archive";
         if (!details.empty()) {
-            message.append(tr(": %1. ").arg(details.c_str()));
+            message = common_message.arg(QString::fromStdString(details));
         } else {
-            message.append(". ");
+            message = common_message.arg("A system archive");
         }
-        message.append(common_message);
 
-        answer = QMessageBox::question(this, tr("System Archive Not Found"), message,
-                                       QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        title = tr("System Archive Not Found");
         status_message = "System Archive Missing";
         break;
     }
 
     case Core::System::ResultStatus::ErrorSharedFont: {
-        QString message = tr("Citra was unable to locate the 3DS shared fonts. ");
+        message = tr("Shared fonts not found. ");
         message.append(common_message);
-        answer = QMessageBox::question(this, tr("Shared Fonts Not Found"), message,
-                                       QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        title = tr("Shared Fonts Not Found");
         status_message = "Shared Font Missing";
         break;
     }
 
     default:
-        answer = QMessageBox::question(
-            this, tr("Fatal Error"),
-            tr("Citra has encountered a fatal error, please see the log for more details. "
-               "For more information on accessing the log, please see the following page: "
-               "<a href='https://community.citra-emu.org/t/how-to-upload-the-log-file/296'>How to "
-               "Upload the Log File</a>.<br/><br/>Would you like to quit back to the game list? "
-               "Continuing emulation may result in crashes, corrupted save data, or other bugs."),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        title = tr("Fatal Error");
+        message =
+            tr("A fatal error occured. "
+               "<a href='https://community.citra-emu.org/t/how-to-upload-the-log-file/296'>Check "
+               "the log</a> for details."
+               "<br/>Continuing emulation may result in crashes and bugs.");
         status_message = "Fatal Error encountered";
         break;
     }
 
-    if (answer == QMessageBox::Yes) {
+    QMessageBox message_box;
+    message_box.setWindowTitle(title);
+    message_box.setText(message);
+    message_box.setIcon(QMessageBox::Icon::Critical);
+    QPushButton* continue_button = message_box.addButton(tr("Continue"), QMessageBox::RejectRole);
+    QPushButton* abort_button = message_box.addButton(tr("Abort"), QMessageBox::AcceptRole);
+    message_box.exec();
+
+    if (message_box.clickedButton() == abort_button) {
         if (emu_thread) {
             ShutdownGame();
         }
@@ -1312,7 +1307,7 @@ bool GMainWindow::ConfirmClose() {
         return true;
 
     QMessageBox::StandardButton answer =
-        QMessageBox::question(this, tr("Citra"), tr("Are you sure you want to close Citra?"),
+        QMessageBox::question(this, tr("Citra"), tr("Would you like to exit now?"),
                               QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     return answer != QMessageBox::No;
 }
@@ -1379,8 +1374,7 @@ bool GMainWindow::ConfirmChangeGame() {
         return true;
 
     auto answer = QMessageBox::question(
-        this, tr("Citra"),
-        tr("Are you sure you want to stop the emulation? Any unsaved progress will be lost."),
+        this, tr("Citra"), tr("The game is still running. Would you like to stop emulation?"),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     return answer != QMessageBox::No;
 }
@@ -1394,15 +1388,14 @@ void GMainWindow::UpdateUITheme() {
     QStringList theme_paths(default_theme_paths);
     if (UISettings::values.theme != UISettings::themes[0].second &&
         !UISettings::values.theme.isEmpty()) {
-        QString theme_uri(":" + UISettings::values.theme + "/style.qss");
+        const QString theme_uri(":" + UISettings::values.theme + "/style.qss");
         QFile f(theme_uri);
-        if (!f.exists()) {
-            LOG_ERROR(Frontend, "Unable to set style, stylesheet file not found");
-        } else {
-            f.open(QFile::ReadOnly | QFile::Text);
+        if (f.open(QFile::ReadOnly | QFile::Text)) {
             QTextStream ts(&f);
             qApp->setStyleSheet(ts.readAll());
             GMainWindow::setStyleSheet(ts.readAll());
+        } else {
+            LOG_ERROR(Frontend, "Unable to set style, stylesheet file not found");
         }
         theme_paths.append(QStringList{":/icons/default", ":/icons/" + UISettings::values.theme});
         QIcon::setThemeName(":/icons/" + UISettings::values.theme);

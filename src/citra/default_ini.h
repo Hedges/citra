@@ -81,6 +81,9 @@ udp_input_address=
 # Port of the udp input server. (Default 26760)
 udp_input_port=
 
+# The pad to request data on. Should be between 0 (Pad 1) and 3 (Pad 4). (Default 0)
+udp_pad_index=
+
 [Core]
 # Whether to use the Just-In-Time (JIT) compiler for CPU emulation
 # 0: Interpreter (slow), 1 (default): JIT (fast)
@@ -227,6 +230,7 @@ log_filter = *:Info
 # Port for listening to GDB connections.
 use_gdbstub=false
 gdbstub_port=24689
+# To LLE a service module add "LLE\<module name>=true"
 
 [WebService]
 # Whether or not to enable telemetry

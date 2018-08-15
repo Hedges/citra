@@ -2,10 +2,12 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <unordered_map>
 #include <QSettings>
 #include "citra_qt/configuration/config.h"
 #include "citra_qt/ui_settings.h"
 #include "common/file_util.h"
+#include "core/hle/service/service.h"
 #include "input_common/main.h"
 #include "input_common/udp/client.h"
 #include "network/network.h"
@@ -79,6 +81,7 @@ void Config::ReadValues() {
             .toStdString();
     Settings::values.udp_input_port = static_cast<u16>(
         ReadSetting("udp_input_port", InputCommon::CemuhookUDP::DEFAULT_PORT).toInt());
+    Settings::values.udp_pad_index = static_cast<u8>(ReadSetting("udp_pad_index", 0).toUInt());
 
     qt_config->endGroup();
 
@@ -174,6 +177,13 @@ void Config::ReadValues() {
     qt_config->beginGroup("Debugging");
     Settings::values.use_gdbstub = ReadSetting("use_gdbstub", false).toBool();
     Settings::values.gdbstub_port = ReadSetting("gdbstub_port", 24689).toInt();
+
+    qt_config->beginGroup("LLE");
+    for (const auto& service_module : Service::service_module_map) {
+        bool use_lle = ReadSetting(QString::fromStdString(service_module.name), false).toBool();
+        Settings::values.lle_modules.emplace(service_module.name, use_lle);
+    }
+    qt_config->endGroup();
     qt_config->endGroup();
 
     qt_config->beginGroup("WebService");
@@ -322,6 +332,7 @@ void Config::SaveValues() {
                  InputCommon::CemuhookUDP::DEFAULT_ADDR);
     WriteSetting("udp_input_port", Settings::values.udp_input_port,
                  InputCommon::CemuhookUDP::DEFAULT_PORT);
+    WriteSetting("udp_pad_index", Settings::values.udp_pad_index, 0);
     qt_config->endGroup();
 
     qt_config->beginGroup("Core");
@@ -403,6 +414,12 @@ void Config::SaveValues() {
     qt_config->beginGroup("Debugging");
     WriteSetting("use_gdbstub", Settings::values.use_gdbstub, false);
     WriteSetting("gdbstub_port", Settings::values.gdbstub_port, 24689);
+
+    qt_config->beginGroup("LLE");
+    for (const auto& service_module : Settings::values.lle_modules) {
+        WriteSetting(QString::fromStdString(service_module.first), service_module.second, false);
+    }
+    qt_config->endGroup();
     qt_config->endGroup();
 
     qt_config->beginGroup("WebService");

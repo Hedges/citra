@@ -28,6 +28,7 @@ class GraphicsBreakPointsWidget;
 class GraphicsTracingWidget;
 class GraphicsVertexShaderWidget;
 class GRenderWindow;
+class LLEServiceModulesWidget;
 class MicroProfileDialog;
 class MultiplayerState;
 class ProfilerWidget;
@@ -102,7 +103,7 @@ private:
     void BootGame(const QString& filename);
     void ShutdownGame();
 
-    void ShowCallouts();
+    void ShowTelemetryCallout();
     void ShowUpdaterWidgets();
     void ShowUpdatePrompt();
     void ShowNoUpdatePrompt();
@@ -217,6 +218,7 @@ private:
     GraphicsBreakPointsWidget* graphicsBreakpointsWidget;
     GraphicsVertexShaderWidget* graphicsVertexShaderWidget;
     GraphicsTracingWidget* graphicsTracingWidget;
+    LLEServiceModulesWidget* lleServiceModulesWidget;
     WaitTreeWidget* waitTreeWidget;
     Updater* updater;
 
