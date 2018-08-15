@@ -63,7 +63,7 @@ const u32 LR_REGISTER = 14;
 const u32 PC_REGISTER = 15;
 const u32 CPSR_REGISTER = 25;
 const u32 D0_REGISTER = 26;
-const u32 FPSCR_REGISTER = 58;
+const u32 FPSCR_REGISTER = 42;
 
 // For sample XML files see the GDB source /gdb/features
 // GDB also wants the l character at the start
@@ -178,10 +178,6 @@ static u32 RegRead(std::size_t id, Kernel::Thread* thread = nullptr) {
         return thread->context.get()->GetCpuRegister(id);
     } else if (id == CPSR_REGISTER) {
         return thread->context.get()->GetCpsr();
-    } else if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
-        return thread->context.get()->GetFpuRegister(id - D0_REGISTER);
-    } else if (id == FPSCR_REGISTER) {
-        return thread->context.get()->GetFpscr();
     } else {
         return 0;
     }
@@ -196,10 +192,6 @@ static void RegWrite(std::size_t id, u32 val, Kernel::Thread* thread = nullptr) 
         return thread->context.get()->SetCpuRegister(id, val);
     } else if (id == CPSR_REGISTER) {
         return thread->context.get()->SetCpsr(val);
-    } else if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
-        return thread->context.get()->SetFpuRegister(id - D0_REGISTER, val);
-    } else if (id == FPSCR_REGISTER) {
-        return thread->context.get()->SetFpscr(val);
     }
 }
 
@@ -210,8 +202,11 @@ static u64 FpuRead(std::size_t id, Kernel::Thread* thread = nullptr) {
 
     if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
         u64 ret = thread->context.get()->GetFpuRegister(2 * (id - D0_REGISTER));
-        ret |= (u64)thread->context.get()->GetFpuRegister(2 * (id - D0_REGISTER) + 1) << 32;
+        ret |= static_cast<u64>(thread->context.get()->GetFpuRegister(2 * (id - D0_REGISTER) + 1))
+               << 32;
         return ret;
+    } else if (id == FPSCR_REGISTER) {
+        return thread->context.get()->GetFpscr();
     } else {
         return 0;
     }
@@ -225,6 +220,8 @@ static void FpuWrite(std::size_t id, u64 val, Kernel::Thread* thread = nullptr) 
     if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
         thread->context.get()->SetFpuRegister(2 * (id - D0_REGISTER), (u32)val);
         thread->context.get()->SetFpuRegister(2 * (id - D0_REGISTER) + 1, val >> 32);
+    } else if (id == FPSCR_REGISTER) {
+        return thread->context.get()->SetFpscr(static_cast<u32>(val));
     }
 }
 
@@ -719,8 +716,7 @@ static void ReadRegister() {
     } else if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
         LongToGdbHex(reply, FpuRead(id, current_thread));
     } else if (id == FPSCR_REGISTER) {
-        IntToGdbHex(reply, RegRead(id, current_thread));
-        IntToGdbHex(reply + 8, 0);
+        IntToGdbHex(reply, static_cast<u32>(FpuRead(id, current_thread)));
     } else {
         return SendReply("E01");
     }
@@ -749,9 +745,9 @@ static void ReadRegisters() {
         LongToGdbHex(bufptr + reg * 16, FpuRead(reg, current_thread));
     }
 
-    bufptr += 32 * 16;
+    bufptr += 16 * 16;
 
-    IntToGdbHex(bufptr, RegRead(FPSCR_REGISTER, current_thread));
+    IntToGdbHex(bufptr, static_cast<u32>(FpuRead(FPSCR_REGISTER, current_thread)));
 
     SendReply(reinterpret_cast<char*>(buffer));
 }
@@ -768,13 +764,13 @@ static void WriteRegister() {
     }
 
     if (id <= PC_REGISTER) {
-        Core::CPU().SetReg(id, GdbHexToInt(buffer_ptr));
+        RegWrite(id, GdbHexToInt(buffer_ptr), current_thread);
     } else if (id == CPSR_REGISTER) {
-        Core::CPU().SetCPSR(GdbHexToInt(buffer_ptr));
-    } else if (id > CPSR_REGISTER && id < FPSCR_REGISTER) {
-        Core::CPU().SetVFPReg(id - CPSR_REGISTER - 1, GdbHexToInt(buffer_ptr));
+        RegWrite(id, GdbHexToInt(buffer_ptr), current_thread);
+    } else if (id >= D0_REGISTER && id < FPSCR_REGISTER) {
+        FpuWrite(id, GdbHexToLong(buffer_ptr), current_thread);
     } else if (id == FPSCR_REGISTER) {
-        Core::CPU().SetVFPSystemReg(VFP_FPSCR, GdbHexToInt(buffer_ptr));
+        FpuWrite(id, GdbHexToInt(buffer_ptr), current_thread);
     } else {
         return SendReply("E01");
     }
@@ -793,19 +789,19 @@ static void WriteRegisters() {
 
     for (u32 i = 0, reg = 0; reg <= FPSCR_REGISTER; i++, reg++) {
         if (reg <= PC_REGISTER) {
-            Core::CPU().SetReg(reg, GdbHexToInt(buffer_ptr + i * CHAR_BIT));
+            RegWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
         } else if (reg == CPSR_REGISTER) {
-            Core::CPU().SetCPSR(GdbHexToInt(buffer_ptr + i * CHAR_BIT));
+            RegWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
         } else if (reg == CPSR_REGISTER - 1) {
             // Dummy FPA register, ignore
         } else if (reg < CPSR_REGISTER) {
             // Dummy FPA registers, ignore
             i += 2;
-        } else if (reg > CPSR_REGISTER && reg < FPSCR_REGISTER) {
-            Core::CPU().SetVFPReg(reg - CPSR_REGISTER - 1, GdbHexToInt(buffer_ptr + i * CHAR_BIT));
+        } else if (reg >= D0_REGISTER && reg < FPSCR_REGISTER) {
+            FpuWrite(reg, GdbHexToLong(buffer_ptr + i * 16));
             i++; // Skip padding
         } else if (reg == FPSCR_REGISTER) {
-            Core::CPU().SetVFPSystemReg(VFP_FPSCR, GdbHexToInt(buffer_ptr + i * CHAR_BIT));
+            FpuWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
         }
     }
 
