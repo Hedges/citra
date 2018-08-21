@@ -903,7 +903,7 @@ static bool CommitBreakpoint(BreakpointType type, PAddr addr, u32 len) {
     breakpoint.addr = addr;
     breakpoint.len = len;
     Memory::ReadBlock(addr, breakpoint.inst.data(), breakpoint.inst.size());
-    static constexpr std::array<u8, 4> btrap{0x70, 0x00, 0x20, 0xe1};
+    static constexpr std::array<u8, 4> btrap{0x78, 0x3e, 0x20, 0xe1};
     Memory::WriteBlock(addr, btrap.data(), btrap.size());
     Core::CPU().ClearInstructionCache();
     p.insert({addr, breakpoint});
