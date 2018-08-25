@@ -9,6 +9,7 @@
 #include <QMainWindow>
 #include <QTimer>
 #include <QTranslator>
+#include "citra_qt/hotkeys.h"
 #include "common/announce_multiplayer_room.h"
 #include "core/core.h"
 #include "core/hle/service/am/am.h"
@@ -38,6 +39,9 @@ class QProgressBar;
 class RegistersWidget;
 class Updater;
 class WaitTreeWidget;
+namespace DiscordRPC {
+class DiscordInterface;
+}
 
 class GMainWindow : public QMainWindow {
     Q_OBJECT
@@ -61,6 +65,7 @@ public:
     ~GMainWindow();
 
     GameList* game_list;
+    std::unique_ptr<DiscordRPC::DiscordInterface> discord_rpc;
 
 signals:
 
@@ -108,6 +113,7 @@ private:
     void ShowUpdatePrompt();
     void ShowNoUpdatePrompt();
     void CheckForUpdates();
+    void SetDiscordEnabled(bool state);
 
     /**
      * Stores the filename in the recently loaded files list.
@@ -231,6 +237,8 @@ private:
 
     // stores default icon theme search paths for the platform
     QStringList default_theme_paths;
+
+    HotkeyRegistry hotkey_registry;
 
 protected:
     void dropEvent(QDropEvent* event) override;

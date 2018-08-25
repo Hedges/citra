@@ -34,6 +34,7 @@
 #include "citra_qt/debugger/profiler.h"
 #include "citra_qt/debugger/registers.h"
 #include "citra_qt/debugger/wait_tree.h"
+#include "citra_qt/discord.h"
 #include "citra_qt/game_list.h"
 #include "citra_qt/hotkeys.h"
 #include "citra_qt/main.h"
@@ -57,6 +58,10 @@
 #include "core/hle/service/fs/archive.h"
 #include "core/loader/loader.h"
 #include "core/settings.h"
+
+#ifdef USE_DISCORD_PRESENCE
+#include "citra_qt/discord_impl.h"
+#endif
 
 #ifdef QT_STATICPLUGIN
 Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin);
@@ -119,6 +124,9 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr) {
 
     default_theme_paths = QIcon::themeSearchPaths();
     UpdateUITheme();
+
+    SetDiscordEnabled(UISettings::values.enable_discord_presence);
+    discord_rpc->Update();
 
     Network::Init();
 
@@ -321,69 +329,73 @@ void GMainWindow::InitializeRecentFileMenuActions() {
 }
 
 void GMainWindow::InitializeHotkeys() {
-    RegisterHotkey("Main Window", "Load File", QKeySequence::Open);
-    RegisterHotkey("Main Window", "Start Emulation");
-    RegisterHotkey("Main Window", "Continue/Pause", QKeySequence(Qt::Key_F4));
-    RegisterHotkey("Main Window", "Restart", QKeySequence(Qt::Key_F5));
-    RegisterHotkey("Main Window", "Swap Screens", QKeySequence(tr("F9")));
-    RegisterHotkey("Main Window", "Toggle Screen Layout", QKeySequence(tr("F10")));
-    RegisterHotkey("Main Window", "Fullscreen", QKeySequence::FullScreen);
-    RegisterHotkey("Main Window", "Exit Fullscreen", QKeySequence(Qt::Key_Escape),
-                   Qt::ApplicationShortcut);
-    RegisterHotkey("Main Window", "Toggle Speed Limit", QKeySequence("CTRL+Z"),
-                   Qt::ApplicationShortcut);
-    RegisterHotkey("Main Window", "Increase Speed Limit", QKeySequence("+"),
-                   Qt::ApplicationShortcut);
-    RegisterHotkey("Main Window", "Decrease Speed Limit", QKeySequence("-"),
-                   Qt::ApplicationShortcut);
-    LoadHotkeys();
+    hotkey_registry.RegisterHotkey("Main Window", "Load File", QKeySequence::Open);
+    hotkey_registry.RegisterHotkey("Main Window", "Start Emulation");
+    hotkey_registry.RegisterHotkey("Main Window", "Continue/Pause", QKeySequence(Qt::Key_F4));
+    hotkey_registry.RegisterHotkey("Main Window", "Restart", QKeySequence(Qt::Key_F5));
+    hotkey_registry.RegisterHotkey("Main Window", "Swap Screens", QKeySequence(tr("F9")));
+    hotkey_registry.RegisterHotkey("Main Window", "Toggle Screen Layout", QKeySequence(tr("F10")));
+    hotkey_registry.RegisterHotkey("Main Window", "Fullscreen", QKeySequence::FullScreen);
+    hotkey_registry.RegisterHotkey("Main Window", "Exit Fullscreen", QKeySequence(Qt::Key_Escape),
+                                   Qt::ApplicationShortcut);
+    hotkey_registry.RegisterHotkey("Main Window", "Toggle Speed Limit", QKeySequence("CTRL+Z"),
+                                   Qt::ApplicationShortcut);
+    hotkey_registry.RegisterHotkey("Main Window", "Increase Speed Limit", QKeySequence("+"),
+                                   Qt::ApplicationShortcut);
+    hotkey_registry.RegisterHotkey("Main Window", "Decrease Speed Limit", QKeySequence("-"),
+                                   Qt::ApplicationShortcut);
+    hotkey_registry.LoadHotkeys();
 
-    connect(GetHotkey("Main Window", "Load File", this), &QShortcut::activated, this,
-            &GMainWindow::OnMenuLoadFile);
-    connect(GetHotkey("Main Window", "Start Emulation", this), &QShortcut::activated, this,
-            &GMainWindow::OnStartGame);
-    connect(GetHotkey("Main Window", "Continue/Pause", this), &QShortcut::activated, this, [&] {
-        if (emulation_running) {
-            if (emu_thread->IsRunning()) {
-                OnPauseGame();
-            } else {
-                OnStartGame();
-            }
-        }
-    });
-    connect(GetHotkey("Main Window", "Restart", this), &QShortcut::activated, this, [this] {
-        if (!Core::System::GetInstance().IsPoweredOn())
-            return;
-        BootGame(QString(game_path));
-    });
-    connect(GetHotkey("Main Window", "Swap Screens", render_window), &QShortcut::activated,
-            ui.action_Screen_Layout_Swap_Screens, &QAction::trigger);
-    connect(GetHotkey("Main Window", "Toggle Screen Layout", render_window), &QShortcut::activated,
-            this, &GMainWindow::ToggleScreenLayout);
-    connect(GetHotkey("Main Window", "Fullscreen", render_window), &QShortcut::activated,
-            ui.action_Fullscreen, &QAction::trigger);
-    connect(GetHotkey("Main Window", "Fullscreen", render_window), &QShortcut::activatedAmbiguously,
-            ui.action_Fullscreen, &QAction::trigger);
-    connect(GetHotkey("Main Window", "Exit Fullscreen", this), &QShortcut::activated, this, [&] {
-        if (emulation_running) {
-            ui.action_Fullscreen->setChecked(false);
-            ToggleFullscreen();
-        }
-    });
-    connect(GetHotkey("Main Window", "Toggle Speed Limit", this), &QShortcut::activated, this, [&] {
-        Settings::values.use_frame_limit = !Settings::values.use_frame_limit;
-        UpdateStatusBar();
-    });
+    connect(hotkey_registry.GetHotkey("Main Window", "Load File", this), &QShortcut::activated,
+            this, &GMainWindow::OnMenuLoadFile);
+    connect(hotkey_registry.GetHotkey("Main Window", "Start Emulation", this),
+            &QShortcut::activated, this, &GMainWindow::OnStartGame);
+    connect(hotkey_registry.GetHotkey("Main Window", "Continue/Pause", this), &QShortcut::activated,
+            this, [&] {
+                if (emulation_running) {
+                    if (emu_thread->IsRunning()) {
+                        OnPauseGame();
+                    } else {
+                        OnStartGame();
+                    }
+                }
+            });
+    connect(hotkey_registry.GetHotkey("Main Window", "Restart", this), &QShortcut::activated, this,
+            [this] {
+                if (!Core::System::GetInstance().IsPoweredOn())
+                    return;
+                BootGame(QString(game_path));
+            });
+    connect(hotkey_registry.GetHotkey("Main Window", "Swap Screens", render_window),
+            &QShortcut::activated, ui.action_Screen_Layout_Swap_Screens, &QAction::trigger);
+    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Screen Layout", render_window),
+            &QShortcut::activated, this, &GMainWindow::ToggleScreenLayout);
+    connect(hotkey_registry.GetHotkey("Main Window", "Fullscreen", render_window),
+            &QShortcut::activated, ui.action_Fullscreen, &QAction::trigger);
+    connect(hotkey_registry.GetHotkey("Main Window", "Fullscreen", render_window),
+            &QShortcut::activatedAmbiguously, ui.action_Fullscreen, &QAction::trigger);
+    connect(hotkey_registry.GetHotkey("Main Window", "Exit Fullscreen", this),
+            &QShortcut::activated, this, [&] {
+                if (emulation_running) {
+                    ui.action_Fullscreen->setChecked(false);
+                    ToggleFullscreen();
+                }
+            });
+    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Speed Limit", this),
+            &QShortcut::activated, this, [&] {
+                Settings::values.use_frame_limit = !Settings::values.use_frame_limit;
+                UpdateStatusBar();
+            });
     constexpr u16 SPEED_LIMIT_STEP = 5;
-    connect(GetHotkey("Main Window", "Increase Speed Limit", this), &QShortcut::activated, this,
-            [&] {
+    connect(hotkey_registry.GetHotkey("Main Window", "Increase Speed Limit", this),
+            &QShortcut::activated, this, [&] {
                 if (Settings::values.frame_limit < 9999 - SPEED_LIMIT_STEP) {
                     Settings::values.frame_limit += SPEED_LIMIT_STEP;
                     UpdateStatusBar();
                 }
             });
-    connect(GetHotkey("Main Window", "Decrease Speed Limit", this), &QShortcut::activated, this,
-            [&] {
+    connect(hotkey_registry.GetHotkey("Main Window", "Decrease Speed Limit", this),
+            &QShortcut::activated, this, [&] {
                 if (Settings::values.frame_limit > SPEED_LIMIT_STEP) {
                     Settings::values.frame_limit -= SPEED_LIMIT_STEP;
                     UpdateStatusBar();
@@ -498,9 +510,10 @@ void GMainWindow::ConnectMenuEvents() {
     connect(ui.action_Show_Room, &QAction::triggered, multiplayer_state,
             &MultiplayerState::OnOpenNetworkRoom);
 
-    ui.action_Fullscreen->setShortcut(GetHotkey("Main Window", "Fullscreen", this)->key());
+    ui.action_Fullscreen->setShortcut(
+        hotkey_registry.GetHotkey("Main Window", "Fullscreen", this)->key());
     ui.action_Screen_Layout_Swap_Screens->setShortcut(
-        GetHotkey("Main Window", "Swap Screens", this)->key());
+        hotkey_registry.GetHotkey("Main Window", "Swap Screens", this)->key());
     ui.action_Screen_Layout_Swap_Screens->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     connect(ui.action_Fullscreen, &QAction::triggered, this, &GMainWindow::ToggleFullscreen);
     connect(ui.action_Screen_Layout_Default, &QAction::triggered, this,
@@ -618,10 +631,12 @@ bool GMainWindow::LoadROM(const QString& filename) {
     render_window->InitRenderTarget();
     render_window->MakeCurrent();
 
+    const char* below_gl33_title = "OpenGL 3.3 Unsupported";
+    const char* below_gl33_message = "Your GPU may not support OpenGL 3.3, or you do not "
+                                     "have the latest graphics driver.";
+
     if (!gladLoadGL()) {
-        QMessageBox::critical(this, tr("OpenGL 3.3 Unsupported"),
-                              tr("Your GPU may not support OpenGL 3.3, or you do not "
-                                 "have the latest graphics driver."));
+        QMessageBox::critical(this, tr(below_gl33_title), tr(below_gl33_message));
         return false;
     }
 
@@ -681,7 +696,18 @@ bool GMainWindow::LoadROM(const QString& filename) {
                    "the "
                    "log</a> for more details. "
                    "Ensure that you have the latest graphics drivers for your GPU."));
+            break;
 
+        case Core::System::ResultStatus::ErrorVideoCore_ErrorGenericDrivers:
+            QMessageBox::critical(
+                this, tr("Video Core Error"),
+                tr("You are running default Windows drivers "
+                   "for your GPU. You need to install the "
+                   "proper drivers for your graphics card from the manufacturer's website."));
+            break;
+
+        case Core::System::ResultStatus::ErrorVideoCore_ErrorBelowGL33:
+            QMessageBox::critical(this, tr(below_gl33_title), tr(below_gl33_message));
             break;
 
         default:
@@ -748,6 +774,7 @@ void GMainWindow::BootGame(const QString& filename) {
 }
 
 void GMainWindow::ShutdownGame() {
+    discord_rpc->Pause();
     emu_thread->RequestStop();
 
     // Release emu threads from any breakpoints
@@ -762,6 +789,8 @@ void GMainWindow::ShutdownGame() {
     // Wait for emulation thread to complete and delete it
     emu_thread->wait();
     emu_thread = nullptr;
+
+    discord_rpc->Update();
 
     Camera::QtMultimediaCameraHandler::ReleaseHandlers();
 
@@ -1049,6 +1078,8 @@ void GMainWindow::OnStartGame() {
     ui.action_Stop->setEnabled(true);
     ui.action_Restart->setEnabled(true);
     ui.action_Report_Compatibility->setEnabled(true);
+
+    discord_rpc->Update();
 }
 
 void GMainWindow::OnPauseGame() {
@@ -1180,15 +1211,18 @@ void GMainWindow::OnSwapScreens() {
 }
 
 void GMainWindow::OnConfigure() {
-    ConfigureDialog configureDialog(this);
+    ConfigureDialog configureDialog(this, hotkey_registry);
     connect(&configureDialog, &ConfigureDialog::languageChanged, this,
             &GMainWindow::OnLanguageChanged);
     auto old_theme = UISettings::values.theme;
+    const bool old_discord_presence = UISettings::values.enable_discord_presence;
     auto result = configureDialog.exec();
     if (result == QDialog::Accepted) {
         configureDialog.applyConfiguration();
         if (UISettings::values.theme != old_theme)
             UpdateUITheme();
+        if (UISettings::values.enable_discord_presence != old_discord_presence)
+            SetDiscordEnabled(UISettings::values.enable_discord_presence);
         emit UpdateThemedIcons();
         SyncMenuUISettings();
         config->Save();
@@ -1335,7 +1369,7 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
     UISettings::values.first_start = false;
 
     game_list->SaveInterfaceLayout();
-    SaveHotkeys();
+    hotkey_registry.SaveHotkeys();
 
     // Shutdown session if the emu thread is active...
     if (emu_thread != nullptr)
@@ -1479,6 +1513,19 @@ void GMainWindow::RetranslateStatusBar() {
            "full-speed emulation this should be at most 16.67 ms."));
 
     multiplayer_state->retranslateUi();
+}
+
+void GMainWindow::SetDiscordEnabled(bool state) {
+#ifdef USE_DISCORD_PRESENCE
+    if (state) {
+        discord_rpc = std::make_unique<DiscordRPC::DiscordImpl>();
+    } else {
+        discord_rpc = std::make_unique<DiscordRPC::NullImpl>();
+    }
+#else
+    discord_rpc = std::make_unique<DiscordRPC::NullImpl>();
+#endif
+    discord_rpc->Update();
 }
 
 #ifdef main
