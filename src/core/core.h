@@ -8,6 +8,7 @@
 #include <string>
 #include "common/common_types.h"
 #include "core/frontend/applets/swkbd.h"
+#include "core/hle/shared_page.h"
 #include "core/loader/loader.h"
 #include "core/memory.h"
 #include "core/perf_stats.h"
@@ -81,11 +82,12 @@ public:
 
     /**
      * Load an executable application.
-     * @param emu_window Pointer to the host-system window used for video output and keyboard input.
+     * @param emu_window Reference to the host-system window used for video output and keyboard
+     *                   input.
      * @param filepath String path to the executable application to load on the host file system.
      * @returns ResultStatus code, indicating if the operation succeeded.
      */
-    ResultStatus Load(EmuWindow* emu_window, const std::string& filepath);
+    ResultStatus Load(EmuWindow& emu_window, const std::string& filepath);
 
     /**
      * Indicates if the emulated system is powered on (all subsystems initialized and able to run an
@@ -163,14 +165,19 @@ public:
         return registered_swkbd;
     }
 
+    std::shared_ptr<SharedPage::Handler> GetSharedPageHandler() const {
+        return shared_page_handler;
+    }
+
 private:
     /**
      * Initialize the emulated system.
-     * @param emu_window Pointer to the host-system window used for video output and keyboard input.
+     * @param emu_window Reference to the host-system window used for video output and keyboard
+     *                   input.
      * @param system_mode The system mode.
      * @return ResultStatus code, indicating if the operation succeeded.
      */
-    ResultStatus Init(EmuWindow* emu_window, u32 system_mode);
+    ResultStatus Init(EmuWindow& emu_window, u32 system_mode);
 
     /// Reschedule the core emulation
     void Reschedule();
@@ -195,6 +202,9 @@ private:
 
     /// Frontend applets
     std::shared_ptr<Frontend::SoftwareKeyboard> registered_swkbd;
+
+    /// Shared Page
+    std::shared_ptr<SharedPage::Handler> shared_page_handler;
 
     static System s_instance;
 
