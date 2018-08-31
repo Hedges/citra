@@ -13,7 +13,6 @@
 #include "core/hle/kernel/shared_memory.h"
 #include "core/hle/result.h"
 #include "core/hle/service/gsp/gsp_gpu.h"
-#include "core/hle/shared_page.h"
 #include "core/hw/gpu.h"
 #include "core/hw/hw.h"
 #include "core/hw/lcd.h"
@@ -354,7 +353,7 @@ void GSP_GPU::RegisterInterruptRelayQueue(Kernel::HLERequestContext& ctx) {
     // TODO(mailwl): return right error code instead assert
     ASSERT_MSG((interrupt_event != nullptr), "handle is not valid!");
 
-    interrupt_event->name = "GSP_GSP_GPU::interrupt_event";
+    interrupt_event->SetName("GSP_GSP_GPU::interrupt_event");
 
     SessionData* session_data = GetSessionData(ctx.Session());
     session_data->interrupt_event = std::move(interrupt_event);
@@ -732,7 +731,8 @@ void GSP_GPU::SetLedForceOff(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x1C, 1, 0);
 
     u8 state = rp.Pop<u8>();
-    SharedPage::Set3DLed(state);
+
+    Core::System::GetInstance().GetSharedPageHandler()->Set3DLed(state);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);

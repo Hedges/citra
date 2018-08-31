@@ -57,6 +57,7 @@
 #include "core/gdbstub/gdbstub.h"
 #include "core/hle/service/fs/archive.h"
 #include "core/loader/loader.h"
+#include "core/movie.h"
 #include "core/settings.h"
 
 #ifdef USE_DISCORD_PRESENCE
@@ -329,69 +330,73 @@ void GMainWindow::InitializeRecentFileMenuActions() {
 }
 
 void GMainWindow::InitializeHotkeys() {
-    RegisterHotkey("Main Window", "Load File", QKeySequence::Open);
-    RegisterHotkey("Main Window", "Start Emulation");
-    RegisterHotkey("Main Window", "Continue/Pause", QKeySequence(Qt::Key_F4));
-    RegisterHotkey("Main Window", "Restart", QKeySequence(Qt::Key_F5));
-    RegisterHotkey("Main Window", "Swap Screens", QKeySequence(tr("F9")));
-    RegisterHotkey("Main Window", "Toggle Screen Layout", QKeySequence(tr("F10")));
-    RegisterHotkey("Main Window", "Fullscreen", QKeySequence::FullScreen);
-    RegisterHotkey("Main Window", "Exit Fullscreen", QKeySequence(Qt::Key_Escape),
-                   Qt::ApplicationShortcut);
-    RegisterHotkey("Main Window", "Toggle Speed Limit", QKeySequence("CTRL+Z"),
-                   Qt::ApplicationShortcut);
-    RegisterHotkey("Main Window", "Increase Speed Limit", QKeySequence("+"),
-                   Qt::ApplicationShortcut);
-    RegisterHotkey("Main Window", "Decrease Speed Limit", QKeySequence("-"),
-                   Qt::ApplicationShortcut);
-    LoadHotkeys();
+    hotkey_registry.RegisterHotkey("Main Window", "Load File", QKeySequence::Open);
+    hotkey_registry.RegisterHotkey("Main Window", "Start Emulation");
+    hotkey_registry.RegisterHotkey("Main Window", "Continue/Pause", QKeySequence(Qt::Key_F4));
+    hotkey_registry.RegisterHotkey("Main Window", "Restart", QKeySequence(Qt::Key_F5));
+    hotkey_registry.RegisterHotkey("Main Window", "Swap Screens", QKeySequence(tr("F9")));
+    hotkey_registry.RegisterHotkey("Main Window", "Toggle Screen Layout", QKeySequence(tr("F10")));
+    hotkey_registry.RegisterHotkey("Main Window", "Fullscreen", QKeySequence::FullScreen);
+    hotkey_registry.RegisterHotkey("Main Window", "Exit Fullscreen", QKeySequence(Qt::Key_Escape),
+                                   Qt::ApplicationShortcut);
+    hotkey_registry.RegisterHotkey("Main Window", "Toggle Speed Limit", QKeySequence("CTRL+Z"),
+                                   Qt::ApplicationShortcut);
+    hotkey_registry.RegisterHotkey("Main Window", "Increase Speed Limit", QKeySequence("+"),
+                                   Qt::ApplicationShortcut);
+    hotkey_registry.RegisterHotkey("Main Window", "Decrease Speed Limit", QKeySequence("-"),
+                                   Qt::ApplicationShortcut);
+    hotkey_registry.LoadHotkeys();
 
-    connect(GetHotkey("Main Window", "Load File", this), &QShortcut::activated, this,
-            &GMainWindow::OnMenuLoadFile);
-    connect(GetHotkey("Main Window", "Start Emulation", this), &QShortcut::activated, this,
-            &GMainWindow::OnStartGame);
-    connect(GetHotkey("Main Window", "Continue/Pause", this), &QShortcut::activated, this, [&] {
-        if (emulation_running) {
-            if (emu_thread->IsRunning()) {
-                OnPauseGame();
-            } else {
-                OnStartGame();
-            }
-        }
-    });
-    connect(GetHotkey("Main Window", "Restart", this), &QShortcut::activated, this, [this] {
-        if (!Core::System::GetInstance().IsPoweredOn())
-            return;
-        BootGame(QString(game_path));
-    });
-    connect(GetHotkey("Main Window", "Swap Screens", render_window), &QShortcut::activated,
-            ui.action_Screen_Layout_Swap_Screens, &QAction::trigger);
-    connect(GetHotkey("Main Window", "Toggle Screen Layout", render_window), &QShortcut::activated,
-            this, &GMainWindow::ToggleScreenLayout);
-    connect(GetHotkey("Main Window", "Fullscreen", render_window), &QShortcut::activated,
-            ui.action_Fullscreen, &QAction::trigger);
-    connect(GetHotkey("Main Window", "Fullscreen", render_window), &QShortcut::activatedAmbiguously,
-            ui.action_Fullscreen, &QAction::trigger);
-    connect(GetHotkey("Main Window", "Exit Fullscreen", this), &QShortcut::activated, this, [&] {
-        if (emulation_running) {
-            ui.action_Fullscreen->setChecked(false);
-            ToggleFullscreen();
-        }
-    });
-    connect(GetHotkey("Main Window", "Toggle Speed Limit", this), &QShortcut::activated, this, [&] {
-        Settings::values.use_frame_limit = !Settings::values.use_frame_limit;
-        UpdateStatusBar();
-    });
+    connect(hotkey_registry.GetHotkey("Main Window", "Load File", this), &QShortcut::activated,
+            this, &GMainWindow::OnMenuLoadFile);
+    connect(hotkey_registry.GetHotkey("Main Window", "Start Emulation", this),
+            &QShortcut::activated, this, &GMainWindow::OnStartGame);
+    connect(hotkey_registry.GetHotkey("Main Window", "Continue/Pause", this), &QShortcut::activated,
+            this, [&] {
+                if (emulation_running) {
+                    if (emu_thread->IsRunning()) {
+                        OnPauseGame();
+                    } else {
+                        OnStartGame();
+                    }
+                }
+            });
+    connect(hotkey_registry.GetHotkey("Main Window", "Restart", this), &QShortcut::activated, this,
+            [this] {
+                if (!Core::System::GetInstance().IsPoweredOn())
+                    return;
+                BootGame(QString(game_path));
+            });
+    connect(hotkey_registry.GetHotkey("Main Window", "Swap Screens", render_window),
+            &QShortcut::activated, ui.action_Screen_Layout_Swap_Screens, &QAction::trigger);
+    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Screen Layout", render_window),
+            &QShortcut::activated, this, &GMainWindow::ToggleScreenLayout);
+    connect(hotkey_registry.GetHotkey("Main Window", "Fullscreen", render_window),
+            &QShortcut::activated, ui.action_Fullscreen, &QAction::trigger);
+    connect(hotkey_registry.GetHotkey("Main Window", "Fullscreen", render_window),
+            &QShortcut::activatedAmbiguously, ui.action_Fullscreen, &QAction::trigger);
+    connect(hotkey_registry.GetHotkey("Main Window", "Exit Fullscreen", this),
+            &QShortcut::activated, this, [&] {
+                if (emulation_running) {
+                    ui.action_Fullscreen->setChecked(false);
+                    ToggleFullscreen();
+                }
+            });
+    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Speed Limit", this),
+            &QShortcut::activated, this, [&] {
+                Settings::values.use_frame_limit = !Settings::values.use_frame_limit;
+                UpdateStatusBar();
+            });
     constexpr u16 SPEED_LIMIT_STEP = 5;
-    connect(GetHotkey("Main Window", "Increase Speed Limit", this), &QShortcut::activated, this,
-            [&] {
+    connect(hotkey_registry.GetHotkey("Main Window", "Increase Speed Limit", this),
+            &QShortcut::activated, this, [&] {
                 if (Settings::values.frame_limit < 9999 - SPEED_LIMIT_STEP) {
                     Settings::values.frame_limit += SPEED_LIMIT_STEP;
                     UpdateStatusBar();
                 }
             });
-    connect(GetHotkey("Main Window", "Decrease Speed Limit", this), &QShortcut::activated, this,
-            [&] {
+    connect(hotkey_registry.GetHotkey("Main Window", "Decrease Speed Limit", this),
+            &QShortcut::activated, this, [&] {
                 if (Settings::values.frame_limit > SPEED_LIMIT_STEP) {
                     Settings::values.frame_limit -= SPEED_LIMIT_STEP;
                     UpdateStatusBar();
@@ -506,9 +511,10 @@ void GMainWindow::ConnectMenuEvents() {
     connect(ui.action_Show_Room, &QAction::triggered, multiplayer_state,
             &MultiplayerState::OnOpenNetworkRoom);
 
-    ui.action_Fullscreen->setShortcut(GetHotkey("Main Window", "Fullscreen", this)->key());
+    ui.action_Fullscreen->setShortcut(
+        hotkey_registry.GetHotkey("Main Window", "Fullscreen", this)->key());
     ui.action_Screen_Layout_Swap_Screens->setShortcut(
-        GetHotkey("Main Window", "Swap Screens", this)->key());
+        hotkey_registry.GetHotkey("Main Window", "Swap Screens", this)->key());
     ui.action_Screen_Layout_Swap_Screens->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     connect(ui.action_Fullscreen, &QAction::triggered, this, &GMainWindow::ToggleFullscreen);
     connect(ui.action_Screen_Layout_Default, &QAction::triggered, this,
@@ -521,6 +527,12 @@ void GMainWindow::ConnectMenuEvents() {
             &GMainWindow::ChangeScreenLayout);
     connect(ui.action_Screen_Layout_Swap_Screens, &QAction::triggered, this,
             &GMainWindow::OnSwapScreens);
+
+    // Movie
+    connect(ui.action_Record_Movie, &QAction::triggered, this, &GMainWindow::OnRecordMovie);
+    connect(ui.action_Play_Movie, &QAction::triggered, this, &GMainWindow::OnPlayMovie);
+    connect(ui.action_Stop_Recording_Playback, &QAction::triggered, this,
+            &GMainWindow::OnStopRecordingPlayback);
 
     // Help
     connect(ui.action_FAQ, &QAction::triggered,
@@ -626,16 +638,18 @@ bool GMainWindow::LoadROM(const QString& filename) {
     render_window->InitRenderTarget();
     render_window->MakeCurrent();
 
+    const char* below_gl33_title = "OpenGL 3.3 Unsupported";
+    const char* below_gl33_message = "Your GPU may not support OpenGL 3.3, or you do not "
+                                     "have the latest graphics driver.";
+
     if (!gladLoadGL()) {
-        QMessageBox::critical(this, tr("OpenGL 3.3 Unsupported"),
-                              tr("Your GPU may not support OpenGL 3.3, or you do not "
-                                 "have the latest graphics driver."));
+        QMessageBox::critical(this, tr(below_gl33_title), tr(below_gl33_message));
         return false;
     }
 
     Core::System& system{Core::System::GetInstance()};
 
-    const Core::System::ResultStatus result{system.Load(render_window, filename.toStdString())};
+    const Core::System::ResultStatus result{system.Load(*render_window, filename.toStdString())};
 
     if (result != Core::System::ResultStatus::Success) {
         switch (result) {
@@ -689,7 +703,18 @@ bool GMainWindow::LoadROM(const QString& filename) {
                    "the "
                    "log</a> for more details. "
                    "Ensure that you have the latest graphics drivers for your GPU."));
+            break;
 
+        case Core::System::ResultStatus::ErrorVideoCore_ErrorGenericDrivers:
+            QMessageBox::critical(
+                this, tr("Video Core Error"),
+                tr("You are running default Windows drivers "
+                   "for your GPU. You need to install the "
+                   "proper drivers for your graphics card from the manufacturer's website."));
+            break;
+
+        case Core::System::ResultStatus::ErrorVideoCore_ErrorBelowGL33:
+            QMessageBox::critical(this, tr(below_gl33_title), tr(below_gl33_message));
             break;
 
         default:
@@ -757,6 +782,7 @@ void GMainWindow::BootGame(const QString& filename) {
 
 void GMainWindow::ShutdownGame() {
     discord_rpc->Pause();
+    OnStopRecordingPlayback();
     emu_thread->RequestStop();
 
     // Release emu threads from any breakpoints
@@ -1048,6 +1074,13 @@ void GMainWindow::OnMenuRecentFile() {
 
 void GMainWindow::OnStartGame() {
     Camera::QtMultimediaCameraHandler::ResumeCameras();
+
+    if (movie_record_on_start) {
+        Core::Movie::GetInstance().StartRecording(movie_record_path.toStdString());
+        movie_record_on_start = false;
+        movie_record_path.clear();
+    }
+
     emu_thread->SetRunning(true);
     qRegisterMetaType<Core::System::ResultStatus>("Core::System::ResultStatus");
     qRegisterMetaType<std::string>("std::string");
@@ -1193,7 +1226,7 @@ void GMainWindow::OnSwapScreens() {
 }
 
 void GMainWindow::OnConfigure() {
-    ConfigureDialog configureDialog(this);
+    ConfigureDialog configureDialog(this, hotkey_registry);
     connect(&configureDialog, &ConfigureDialog::languageChanged, this,
             &GMainWindow::OnLanguageChanged);
     auto old_theme = UISettings::values.theme;
@@ -1225,6 +1258,127 @@ void GMainWindow::OnCreateGraphicsSurfaceViewer() {
     addDockWidget(Qt::RightDockWidgetArea, graphicsSurfaceViewerWidget);
     // TODO: Maybe graphicsSurfaceViewerWidget->setFloating(true);
     graphicsSurfaceViewerWidget->show();
+}
+
+void GMainWindow::OnRecordMovie() {
+    const QString path =
+        QFileDialog::getSaveFileName(this, tr("Record Movie"), UISettings::values.movie_record_path,
+                                     tr("Citra TAS Movie (*.ctm)"));
+    if (path.isEmpty())
+        return;
+    UISettings::values.movie_record_path = QFileInfo(path).path();
+    if (emulation_running) {
+        Core::Movie::GetInstance().StartRecording(path.toStdString());
+    } else {
+        movie_record_on_start = true;
+        movie_record_path = path;
+        QMessageBox::information(this, tr("Record Movie"),
+                                 tr("Recording will start once you boot a game."));
+    }
+    ui.action_Record_Movie->setEnabled(false);
+    ui.action_Play_Movie->setEnabled(false);
+    ui.action_Stop_Recording_Playback->setEnabled(true);
+}
+
+bool GMainWindow::ValidateMovie(const QString& path, u64 program_id) {
+    using namespace Core;
+    Movie::ValidationResult result =
+        Core::Movie::GetInstance().ValidateMovie(path.toStdString(), program_id);
+    const QString revision_dismatch_text =
+        tr("The movie file you are trying to load was created on a different revision of Citra."
+           "<br/>Citra has had some changes during the time, and the playback may desync or not "
+           "work as expected."
+           "<br/><br/>Are you sure you still want to load the movie file?");
+    const QString game_dismatch_text =
+        tr("The movie file you are trying to load was recorded with a different game."
+           "<br/>The playback may not work as expected, and it may cause unexpected results."
+           "<br/><br/>Are you sure you still want to load the movie file?");
+    const QString invalid_movie_text =
+        tr("The movie file you are trying to load is invalid."
+           "<br/>Either the file is corrupted, or Citra has had made some major changes to the "
+           "Movie module."
+           "<br/>Please choose a different movie file and try again.");
+    int answer;
+    switch (result) {
+    case Movie::ValidationResult::RevisionDismatch:
+        answer = QMessageBox::question(this, tr("Revision Dismatch"), revision_dismatch_text,
+                                       QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes)
+            return false;
+        break;
+    case Movie::ValidationResult::GameDismatch:
+        answer = QMessageBox::question(this, tr("Game Dismatch"), game_dismatch_text,
+                                       QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes)
+            return false;
+        break;
+    case Movie::ValidationResult::Invalid:
+        QMessageBox::critical(this, tr("Invalid Movie File"), invalid_movie_text);
+        return false;
+    default:
+        break;
+    }
+    return true;
+}
+
+void GMainWindow::OnPlayMovie() {
+    const QString path =
+        QFileDialog::getOpenFileName(this, tr("Play Movie"), UISettings::values.movie_playback_path,
+                                     tr("Citra TAS Movie (*.ctm)"));
+    if (path.isEmpty())
+        return;
+    UISettings::values.movie_playback_path = QFileInfo(path).path();
+
+    if (emulation_running) {
+        if (!ValidateMovie(path))
+            return;
+    } else {
+        const QString invalid_movie_text =
+            tr("The movie file you are trying to load is invalid."
+               "<br/>Either the file is corrupted, or Citra has had made some major changes to the "
+               "Movie module."
+               "<br/>Please choose a different movie file and try again.");
+        u64 program_id = Core::Movie::GetInstance().GetMovieProgramID(path.toStdString());
+        if (!program_id) {
+            QMessageBox::critical(this, tr("Invalid Movie File"), invalid_movie_text);
+            return;
+        }
+        QString game_path = game_list->FindGameByProgramID(program_id);
+        if (game_path.isEmpty()) {
+            QMessageBox::warning(this, tr("Game Not Found"),
+                                 tr("The movie you are trying to play is from a game that is not "
+                                    "in the game list. If you own the game, please add the game "
+                                    "folder to the game list and try to play the movie again."));
+            return;
+        }
+        if (!ValidateMovie(path, program_id))
+            return;
+        BootGame(game_path);
+    }
+    Core::Movie::GetInstance().StartPlayback(path.toStdString(), [this] {
+        QMetaObject::invokeMethod(this, "OnMoviePlaybackCompleted");
+    });
+    ui.action_Record_Movie->setEnabled(false);
+    ui.action_Play_Movie->setEnabled(false);
+    ui.action_Stop_Recording_Playback->setEnabled(true);
+}
+
+void GMainWindow::OnStopRecordingPlayback() {
+    if (movie_record_on_start) {
+        QMessageBox::information(this, tr("Record Movie"), tr("Movie recording cancelled."));
+        movie_record_on_start = false;
+        movie_record_path.clear();
+    } else {
+        const bool was_recording = Core::Movie::GetInstance().IsRecordingInput();
+        Core::Movie::GetInstance().Shutdown();
+        if (was_recording) {
+            QMessageBox::information(this, tr("Movie Saved"),
+                                     tr("The movie is successfully saved."));
+        }
+    }
+    ui.action_Record_Movie->setEnabled(true);
+    ui.action_Play_Movie->setEnabled(true);
+    ui.action_Stop_Recording_Playback->setEnabled(false);
 }
 
 void GMainWindow::UpdateStatusBar() {
@@ -1351,7 +1505,7 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
     UISettings::values.first_start = false;
 
     game_list->SaveInterfaceLayout();
-    SaveHotkeys();
+    hotkey_registry.SaveHotkeys();
 
     // Shutdown session if the emu thread is active...
     if (emu_thread != nullptr)
@@ -1460,6 +1614,13 @@ void GMainWindow::OnLanguageChanged(const QString& locale) {
 
     if (emulation_running)
         ui.action_Start->setText(tr("Continue"));
+}
+
+void GMainWindow::OnMoviePlaybackCompleted() {
+    QMessageBox::information(this, tr("Playback Completed"), tr("Movie playback completed."));
+    ui.action_Record_Movie->setEnabled(true);
+    ui.action_Play_Movie->setEnabled(true);
+    ui.action_Stop_Recording_Playback->setEnabled(false);
 }
 
 void GMainWindow::SetupUIStrings() {

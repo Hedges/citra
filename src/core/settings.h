@@ -12,6 +12,11 @@
 
 namespace Settings {
 
+enum class InitClock {
+    SystemTime = 0,
+    FixedTime = 1,
+};
+
 enum class LayoutOption {
     Default,
     SingleScreen,
@@ -106,8 +111,10 @@ struct Values {
     // Data Storage
     bool use_virtual_sd;
 
-    // System Region
+    // System
     int region_value;
+    InitClock init_clock;
+    u64 init_time;
 
     // Renderer
     bool use_hw_renderer;
@@ -155,10 +162,6 @@ struct Values {
     u16 gdbstub_port;
     std::string log_filter;
     std::unordered_map<std::string, bool> lle_modules;
-
-    // Movie
-    std::string movie_play;
-    std::string movie_record;
 
     // WebService
     bool enable_telemetry;

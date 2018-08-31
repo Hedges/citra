@@ -83,7 +83,7 @@ System::ResultStatus System::SingleStep() {
     return RunLoop(false);
 }
 
-System::ResultStatus System::Load(EmuWindow* emu_window, const std::string& filepath) {
+System::ResultStatus System::Load(EmuWindow& emu_window, const std::string& filepath) {
     app_loader = Loader::GetLoader(filepath);
 
     if (!app_loader) {
@@ -152,7 +152,7 @@ void System::Reschedule() {
     Kernel::Reschedule();
 }
 
-System::ResultStatus System::Init(EmuWindow* emu_window, u32 system_mode) {
+System::ResultStatus System::Init(EmuWindow& emu_window, u32 system_mode) {
     LOG_DEBUG(HW_Memory, "initialized OK");
 
     CoreTiming::Init();
@@ -174,15 +174,16 @@ System::ResultStatus System::Init(EmuWindow* emu_window, u32 system_mode) {
 
     telemetry_session = std::make_unique<Core::TelemetrySession>();
     service_manager = std::make_shared<Service::SM::ServiceManager>();
+    shared_page_handler = std::make_shared<SharedPage::Handler>();
 
     HW::Init();
     Kernel::Init(system_mode);
     Service::Init(service_manager);
     GDBStub::Init();
-    Movie::GetInstance().Init();
 
-    if (!VideoCore::Init(emu_window)) {
-        return ResultStatus::ErrorVideoCore;
+    ResultStatus result = VideoCore::Init(emu_window);
+    if (result != ResultStatus::Success) {
+        return result;
     }
 
     LOG_DEBUG(Core, "Initialized OK");
@@ -217,7 +218,6 @@ void System::Shutdown() {
                          perf_results.frametime * 1000.0);
 
     // Shutdown emulation session
-    Movie::GetInstance().Shutdown();
     GDBStub::Shutdown();
     VideoCore::Shutdown();
     Service::Shutdown();

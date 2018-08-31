@@ -185,9 +185,7 @@ void GameList::onTextChanged(const QString& newText) {
     int folderCount = tree_view->model()->rowCount();
     QString edit_filter_text = newText.toLower();
     QStandardItem* folder;
-    QStandardItem* child;
     int childrenTotal = 0;
-    QModelIndex root_index = item_model->invisibleRootItem()->index();
 
     // If the searchfield is empty every item is visible
     // Otherwise the filter gets applied
@@ -203,7 +201,6 @@ void GameList::onTextChanged(const QString& newText) {
         }
         search_field->setFilterResult(childrenTotal, childrenTotal);
     } else {
-        QString file_path, file_name, file_title, file_programmid;
         int result_count = 0;
         for (int i = 0; i < folderCount; ++i) {
             folder = item_model->item(i, 0);
@@ -211,11 +208,14 @@ void GameList::onTextChanged(const QString& newText) {
             int childrenCount = folder->rowCount();
             for (int j = 0; j < childrenCount; ++j) {
                 ++childrenTotal;
-                child = folder->child(j, 0);
-                file_path = child->data(GameListItemPath::FullPathRole).toString().toLower();
-                file_name = file_path.mid(file_path.lastIndexOf("/") + 1);
-                file_title = child->data(GameListItemPath::TitleRole).toString().toLower();
-                file_programmid = child->data(GameListItemPath::ProgramIdRole).toString().toLower();
+                const QStandardItem* child = folder->child(j, 0);
+                const QString file_path =
+                    child->data(GameListItemPath::FullPathRole).toString().toLower();
+                QString file_name = file_path.mid(file_path.lastIndexOf("/") + 1);
+                const QString file_title =
+                    child->data(GameListItemPath::TitleRole).toString().toLower();
+                const QString file_programmid =
+                    child->data(GameListItemPath::ProgramIdRole).toString().toLower();
 
                 // Only items which filename in combination with its title contains all words
                 // that are in the searchfield will be visible in the gamelist
@@ -626,6 +626,24 @@ void GameList::RefreshGameDirectory() {
         LOG_INFO(Frontend, "Change detected in the games directory. Reloading game list.");
         PopulateAsync(UISettings::values.game_dirs);
     }
+}
+
+QString GameList::FindGameByProgramID(u64 program_id) {
+    return FindGameByProgramID(item_model->invisibleRootItem(), program_id);
+}
+
+QString GameList::FindGameByProgramID(QStandardItem* current_item, u64 program_id) {
+    if (current_item->type() == static_cast<int>(GameListItemType::Game) &&
+        current_item->data(GameListItemPath::ProgramIdRole).toULongLong() == program_id) {
+        return current_item->data(GameListItemPath::FullPathRole).toString();
+    } else if (current_item->hasChildren()) {
+        for (int child_id = 0; child_id < current_item->rowCount(); child_id++) {
+            QString path = FindGameByProgramID(current_item->child(child_id, 0), program_id);
+            if (!path.isEmpty())
+                return path;
+        }
+    }
+    return "";
 }
 
 void GameListWorker::AddFstEntriesToGameList(const std::string& dir_path, unsigned int recursion,

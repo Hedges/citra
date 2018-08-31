@@ -40,7 +40,7 @@ ConfigureGeneral::ConfigureGeneral(QWidget* parent)
     ui->updateBox->setVisible(UISettings::values.updater_found);
 }
 
-ConfigureGeneral::~ConfigureGeneral() {}
+ConfigureGeneral::~ConfigureGeneral() = default;
 
 void ConfigureGeneral::setConfiguration() {
     ui->toggle_check_exit->setChecked(UISettings::values.confirm_before_closing);
@@ -54,6 +54,10 @@ void ConfigureGeneral::setConfiguration() {
     ui->theme_combobox->setCurrentIndex(ui->theme_combobox->findData(UISettings::values.theme));
     ui->language_combobox->setCurrentIndex(
         ui->language_combobox->findData(UISettings::values.language));
+}
+
+void ConfigureGeneral::PopulateHotkeyList(const HotkeyRegistry& registry) {
+    ui->hotkeysDialog->Populate(registry);
 }
 
 void ConfigureGeneral::applyConfiguration() {
