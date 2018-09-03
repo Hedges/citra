@@ -534,8 +534,6 @@ static void HandleQuery() {
     } else if (strncmp(query, "Xfer:features:read:target.xml:",
                        strlen("Xfer:features:read:target.xml:")) == 0) {
         SendReply(target_xml);
-    } else if (strncmp(query, "xmlRegisters", strlen("xmlRegisters’")) == 0) {
-        SendReply(target_xml);
     } else if (strncmp(query, "fThreadInfo", strlen("fThreadInfo")) == 0) {
         std::string val = "m";
         const auto& threads = Kernel::GetThreadList();

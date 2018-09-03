@@ -48,8 +48,6 @@ public:
     void InvalidateCacheRange(u32 start_address, size_t length) override;
     void PageTableChanged() override;
 
-    void ServeBreak() override;
-
 private:
     friend class DynarmicUserCallbacks;
     std::unique_ptr<DynarmicUserCallbacks> cb;
