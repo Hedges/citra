@@ -41,6 +41,8 @@ public:
 
     void PrepareReschedule() override;
 
+    void ServeBreak() override;
+
 private:
     void ExecuteInstructions(u64 num_instructions);
 
