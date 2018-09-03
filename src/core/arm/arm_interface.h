@@ -172,4 +172,7 @@ public:
 
     /// Prepare core for thread reschedule (if needed to correctly handle state)
     virtual void PrepareReschedule() = 0;
+
+    /// Serve Break for GDBStub
+    virtual void ServeBreak() = 0;
 };
