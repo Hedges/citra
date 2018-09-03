@@ -70,7 +70,6 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
     }
 
     if (GDBStub::IsServerEnabled()) {
-        //cpu_core->ServeBreak();
         GDBStub::SetCpuStepFlag(false);
     }
 

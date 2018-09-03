@@ -601,16 +601,16 @@ void ARMul_State::ServeBreak() {
         return;
     }
 
+    if (last_bkpt_hit) {
+        Core::CPU().SetPC(last_bkpt.address);
+    }
+
+    Kernel::Thread* thread = Kernel::GetCurrentThread();
+    if (thread) {
+        Core::CPU().SaveContext(thread->context);
+    }
+
     if (last_bkpt_hit || GDBStub::GetCpuStepFlag()) {
-        Kernel::Thread* thread = Kernel::GetCurrentThread();
-
-        if (last_bkpt_hit) {
-            Reg[15] = last_bkpt.address;
-            if (thread) {
-                Core::CPU().SaveContext(thread->context);
-            }
-        }
-
         last_bkpt_hit = false;
         GDBStub::Break();
         GDBStub::SendTrap(thread, 5);
