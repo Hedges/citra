@@ -125,18 +125,12 @@ public:
     }
 
     void ExceptionRaised(VAddr pc, Dynarmic::A32::Exception exception) override {
-        if (exception == Dynarmic::A32::Exception::Breakpoint && GDBStub::IsConnected()) {
-            pc -= 8;
-            GDBStub::BreakpointAddress breakpoint_data =
-                GDBStub::GetNextBreakpointFromAddress(pc, GDBStub::BreakpointType::Execute);
-            if (GDBStub::IsMemoryBreak() ||
-                (breakpoint_data.type != GDBStub::BreakpointType::None &&
-                 pc == breakpoint_data.address)) {
-                parent.jit->HaltExecution();
-                parent.interpreter_state->RecordBreak(breakpoint_data);
-                parent.interpreter_state->ServeBreak();
-                return;
-            }
+        if (exception == Dynarmic::A32::Exception::Breakpoint && GDBStub::IsServerEnabled()) {
+            GDBStub::BreakpointAddress breakpoint_data{pc - 8, GDBStub::BreakpointType::Execute};
+            parent.jit->HaltExecution();
+            parent.interpreter_state->RecordBreak(breakpoint_data);
+            parent.interpreter_state->ServeBreak();
+            return;
         }
 
         ASSERT_MSG(false, "ExceptionRaised(exception = {}, pc = {:08X}, code = {:08X})",
