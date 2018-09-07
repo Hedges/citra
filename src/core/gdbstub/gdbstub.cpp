@@ -14,6 +14,7 @@
 #include <map>
 #include <numeric>
 #include <fcntl.h>
+#include <fmt/format.h>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -31,7 +32,6 @@
 #endif
 
 #include "common/logging/log.h"
-#include "common/string_util.h"
 #include "core/arm/arm_interface.h"
 #include "core/core.h"
 #include "core/gdbstub/gdbstub.h"
@@ -263,7 +263,7 @@ static u8 NibbleToHex(u8 n) {
  * @param src Pointer to array of output hex string characters.
  * @param len Length of src array.
  */
-static u32 HexToInt(const u8* src, size_t len) {
+static u32 HexToInt(const u8* src, std::size_t len) {
     u32 output = 0;
     while (len-- > 0) {
         output = (output << 4) | HexCharToValue(src[0]);
@@ -279,7 +279,7 @@ static u32 HexToInt(const u8* src, size_t len) {
  * @param src Pointer to array of u8 bytes.
  * @param len Length of src array.
  */
-static void MemToGdbHex(u8* dest, const u8* src, size_t len) {
+static void MemToGdbHex(u8* dest, const u8* src, std::size_t len) {
     while (len-- > 0) {
         u8 tmp = *src++;
         *dest++ = NibbleToHex(tmp >> 4);
@@ -294,7 +294,7 @@ static void MemToGdbHex(u8* dest, const u8* src, size_t len) {
  * @param src Pointer to array of output hex string characters.
  * @param len Length of src array.
  */
-static void GdbHexToMem(u8* dest, const u8* src, size_t len) {
+static void GdbHexToMem(u8* dest, const u8* src, std::size_t len) {
     while (len-- > 0) {
         *dest++ = (HexCharToValue(src[0]) << 4) | HexCharToValue(src[1]);
         src += 2;
@@ -362,7 +362,7 @@ static u64 GdbHexToLong(const u8* src) {
 /// Read a byte from the gdb client.
 static u8 ReadByte() {
     u8 c;
-    size_t received_size = recv(gdbserver_socket, reinterpret_cast<char*>(&c), 1, MSG_WAITALL);
+    std::size_t received_size = recv(gdbserver_socket, reinterpret_cast<char*>(&c), 1, MSG_WAITALL);
     if (received_size != 1) {
         LOG_ERROR(Debug_GDBStub, "recv failed : {}", received_size);
         Shutdown();
@@ -372,7 +372,7 @@ static u8 ReadByte() {
 }
 
 /// Calculate the checksum of the current command buffer.
-static u8 CalculateChecksum(const u8* buffer, size_t length) {
+static u8 CalculateChecksum(const u8* buffer, std::size_t length) {
     return static_cast<u8>(std::accumulate(buffer, buffer + length, 0, std::plus<u8>()));
 }
 
@@ -474,7 +474,7 @@ bool CheckBreakpoint(VAddr addr, BreakpointType type) {
  * @param packet Packet to be sent to client.
  */
 static void SendPacket(const char packet) {
-    size_t sent_size = send(gdbserver_socket, &packet, 1, 0);
+    std::size_t sent_size = send(gdbserver_socket, &packet, 1, 0);
     if (sent_size != 1) {
         LOG_ERROR(Debug_GDBStub, "send failed");
     }
@@ -611,16 +611,17 @@ static void SendSignal(Kernel::Thread* thread, u32 signal, bool full = true) {
 
     std::string buffer;
     if (full) {
-        buffer = Common::StringFromFormat("T%02x%02x:%08x;%02x:%08x;%02x:%08x", latest_signal,
-                                          PC_REGISTER, htonl(Core::CPU().GetPC()), SP_REGISTER,
-                                          htonl(Core::CPU().GetReg(SP_REGISTER)), LR_REGISTER,
-                                          htonl(Core::CPU().GetReg(LR_REGISTER)));
+
+        buffer = fmt::format("T{:02x}{:02x}:{:08x};{:02x}:{:08x};{:02x}:{:08x}", latest_signal,
+                             PC_REGISTER, htonl(Core::CPU().GetPC()), SP_REGISTER,
+                             htonl(Core::CPU().GetReg(SP_REGISTER)), LR_REGISTER,
+                             htonl(Core::CPU().GetReg(LR_REGISTER)));
     } else {
-        buffer = Common::StringFromFormat("T%02x", latest_signal);
+        buffer = fmt::format("T{:02x}", latest_signal);
     }
 
     if (thread) {
-        buffer += Common::StringFromFormat(";thread:%x;", thread->GetThreadId());
+        buffer += fmt::format(";thread:{:x};", thread->GetThreadId());
     }
 
     LOG_DEBUG(Debug_GDBStub, "Response: {}", buffer);

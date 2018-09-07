@@ -6,7 +6,6 @@
 #include <fmt/format.h>
 #include "common/assert.h"
 #include "common/logging/log.h"
-#include "common/string_util.h"
 #include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/kernel/client_port.h"
@@ -125,10 +124,9 @@ static std::string MakeFunctionString(const char* name, const char* port_name,
     // Number of params == bits 0-5 + bits 6-11
     int num_params = (cmd_buff[0] & 0x3F) + ((cmd_buff[0] >> 6) & 0x3F);
 
-    std::string function_string =
-        Common::StringFromFormat("function '%s': port=%s", name, port_name);
+    std::string function_string = fmt::format("function '{}': port={}", name, port_name);
     for (int i = 1; i <= num_params; ++i) {
-        function_string += Common::StringFromFormat(", cmd_buff[%i]=0x%X", i, cmd_buff[i]);
+        function_string += fmt::format(", cmd_buff[{}]={:#X}", i, cmd_buff[i]);
     }
     return function_string;
 }
@@ -154,9 +152,9 @@ void ServiceFrameworkBase::InstallAsNamedPort() {
     AddNamedPort(service_name, std::move(client_port));
 }
 
-void ServiceFrameworkBase::RegisterHandlersBase(const FunctionInfoBase* functions, size_t n) {
+void ServiceFrameworkBase::RegisterHandlersBase(const FunctionInfoBase* functions, std::size_t n) {
     handlers.reserve(handlers.size() + n);
-    for (size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; i < n; ++i) {
         // Usually this array is sorted by id already, so hint to insert at the end
         handlers.emplace_hint(handlers.cend(), functions[i].expected_header, functions[i]);
     }

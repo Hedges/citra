@@ -14,6 +14,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 #include <QtGui>
 #include <QtWidgets>
+#include <fmt/format.h>
 #include "citra_qt/aboutdialog.h"
 #include "citra_qt/applets/swkbd.h"
 #include "citra_qt/bootmanager.h"
@@ -49,7 +50,6 @@
 #include "common/microprofile.h"
 #include "common/scm_rev.h"
 #include "common/scope_exit.h"
-#include "common/string_util.h"
 #include "core/core.h"
 #include "core/file_sys/archive_source_sd_savedata.h"
 #include "core/frontend/applets/default_applets.h"
@@ -113,7 +113,7 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr) {
     Settings::LogSettings();
 
     // register types to use in slots and signals
-    qRegisterMetaType<size_t>("size_t");
+    qRegisterMetaType<std::size_t>("std::size_t");
     qRegisterMetaType<Service::AM::InstallStatus>("Service::AM::InstallStatus");
 
     LoadTranslation();
@@ -1000,7 +1000,7 @@ void GMainWindow::OnMenuInstallCIA() {
     QtConcurrent::run([&, filepaths] {
         QString current_path;
         Service::AM::InstallStatus status;
-        const auto cia_progress = [&](size_t written, size_t total) {
+        const auto cia_progress = [&](std::size_t written, std::size_t total) {
             emit UpdateProgress(written, total);
         };
         for (const auto current_path : filepaths) {
@@ -1011,7 +1011,7 @@ void GMainWindow::OnMenuInstallCIA() {
     });
 }
 
-void GMainWindow::OnUpdateProgress(size_t written, size_t total) {
+void GMainWindow::OnUpdateProgress(std::size_t written, std::size_t total) {
     progress_bar->setValue(
         static_cast<int>(INT_MAX * (static_cast<double>(written) / static_cast<double>(total))));
 }
@@ -1402,14 +1402,15 @@ void GMainWindow::UpdateStatusBar() {
 void GMainWindow::OnCoreError(Core::System::ResultStatus result, std::string details) {
     QMessageBox::StandardButton answer;
     QString status_message;
-    const QString common_message =
-        tr("%1 is missing. Please <a "
-           "href='https://citra-emu.org/wiki/"
-           "dumping-system-archives-and-the-shared-fonts-from-a-3ds-console/'>dump your "
-           "system archives</a>.<br/>Continuing emulation may result in crashes and bugs.");
+
     QString title, message;
-    switch (result) {
-    case Core::System::ResultStatus::ErrorSystemFiles: {
+    if (result == Core::System::ResultStatus::ErrorSystemFiles) {
+        const QString common_message =
+            tr("%1 is missing. Please <a "
+               "href='https://citra-emu.org/wiki/"
+               "dumping-system-archives-and-the-shared-fonts-from-a-3ds-console/'>dump your "
+               "system archives</a>.<br/>Continuing emulation may result in crashes and bugs.");
+
         if (!details.empty()) {
             message = common_message.arg(QString::fromStdString(details));
         } else {
@@ -1418,18 +1419,7 @@ void GMainWindow::OnCoreError(Core::System::ResultStatus result, std::string det
 
         title = tr("System Archive Not Found");
         status_message = "System Archive Missing";
-        break;
-    }
-
-    case Core::System::ResultStatus::ErrorSharedFont: {
-        message = tr("Shared fonts not found. ");
-        message.append(common_message);
-        title = tr("Shared Fonts Not Found");
-        status_message = "Shared Font Missing";
-        break;
-    }
-
-    default:
+    } else {
         title = tr("Fatal Error");
         message =
             tr("A fatal error occured. "
@@ -1437,7 +1427,6 @@ void GMainWindow::OnCoreError(Core::System::ResultStatus result, std::string det
                "the log</a> for details."
                "<br/>Continuing emulation may result in crashes and bugs.");
         status_message = "Fatal Error encountered";
-        break;
     }
 
     QMessageBox message_box;
