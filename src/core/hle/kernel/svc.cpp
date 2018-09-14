@@ -6,6 +6,11 @@
 #include <cinttypes>
 #include <map>
 #include <fmt/format.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "common/logging/log.h"
 #include "common/microprofile.h"
 #include "common/scope_exit.h"
@@ -664,6 +669,9 @@ static void Break(u8 break_reason) {
 static void OutputDebugString(VAddr address, int len) {
     std::string string(len, ' ');
     Memory::ReadBlock(address, string.data(), len);
+#ifdef _WIN32
+    ::OutputDebugString((string+"\r\n").c_str());
+#endif
     LOG_DEBUG(Debug_Emulated, "{}", string);
 }
 
@@ -723,7 +731,7 @@ static ResultCode GetResourceLimitLimitValues(VAddr values, Handle resource_limi
 /// Creates a new thread
 static ResultCode CreateThread(Handle* out_handle, u32 priority, u32 entry_point, u32 arg,
                                u32 stack_top, s32 processor_id) {
-    std::string name = fmt::format("unknown-{:08X}", entry_point);
+    std::string name = fmt::format("thread-{:08X}", entry_point);
 
     if (priority > THREADPRIO_LOWEST) {
         return ERR_OUT_OF_RANGE;
