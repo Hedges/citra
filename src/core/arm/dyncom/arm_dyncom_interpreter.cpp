@@ -1801,14 +1801,14 @@ BIC_INST : {
 }
 BKPT_INST : {
     if (inst_base->cond == ConditionCode::AL || CondPassed(cpu, inst_base->cond)) {
-        bkpt_inst* const inst_cream = (bkpt_inst*)inst_base->component;
         if (GDBStub::IsServerEnabled()) {
             breakpoint_data.address = cpu->Reg[15];
             breakpoint_data.type = GDBStub::BreakpointType::Execute;
             cpu->RecordBreak(breakpoint_data);
             goto END;
         } else {
-            ASSERT_MSG(false, "Breakpoint instruction hit. Immediate: {:#010X}", inst_cream->imm);
+            bkpt_inst* const inst_cream = (bkpt_inst*)inst_base->component;
+            LOG_DEBUG(Core_ARM11, "Breakpoint instruction hit. Immediate: {:#010X}", inst_cream->imm);
         }
     }
     cpu->Reg[15] += cpu->GetInstructionSize();
