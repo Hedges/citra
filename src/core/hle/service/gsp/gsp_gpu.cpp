@@ -23,8 +23,7 @@
 // Main graphics debugger object - TODO: Here is probably not the best place for this
 GraphicsDebugger g_debugger;
 
-namespace Service {
-namespace GSP {
+namespace Service::GSP {
 
 // Beginning address of HW regs
 const u32 REGS_BEGIN = 0x1EB00000;
@@ -732,7 +731,7 @@ void GSP_GPU::SetLedForceOff(Kernel::HLERequestContext& ctx) {
 
     u8 state = rp.Pop<u8>();
 
-    Core::System::GetInstance().GetSharedPageHandler()->Set3DLed(state);
+    system.GetSharedPageHandler()->Set3DLed(state);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -750,7 +749,7 @@ SessionData* GSP_GPU::FindRegisteredThreadData(u32 thread_id) {
     return nullptr;
 }
 
-GSP_GPU::GSP_GPU() : ServiceFramework("gsp::Gpu", 2) {
+GSP_GPU::GSP_GPU(Core::System& system) : ServiceFramework("gsp::Gpu", 2), system(system) {
     static const FunctionInfo functions[] = {
         {0x00010082, &GSP_GPU::WriteHWRegs, "WriteHWRegs"},
         {0x00020084, &GSP_GPU::WriteHWRegsWithMask, "WriteHWRegsWithMask"},
@@ -787,9 +786,9 @@ GSP_GPU::GSP_GPU() : ServiceFramework("gsp::Gpu", 2) {
     RegisterHandlers(functions);
 
     using Kernel::MemoryPermission;
-    shared_memory = Kernel::SharedMemory::Create(nullptr, 0x1000, MemoryPermission::ReadWrite,
-                                                 MemoryPermission::ReadWrite, 0,
-                                                 Kernel::MemoryRegion::BASE, "GSP:SharedMemory");
+    shared_memory = system.Kernel().CreateSharedMemory(
+        nullptr, 0x1000, MemoryPermission::ReadWrite, MemoryPermission::ReadWrite, 0,
+        Kernel::MemoryRegion::BASE, "GSP:SharedMemory");
 
     first_initialization = true;
 };
@@ -807,5 +806,4 @@ SessionData::~SessionData() {
     used_thread_ids[thread_id] = false;
 }
 
-} // namespace GSP
-} // namespace Service
+} // namespace Service::GSP

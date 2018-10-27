@@ -15,10 +15,12 @@
 #include "core/hle/kernel/object.h"
 #include "core/hle/service/sm/sm.h"
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Namespace Service
+namespace Core {
+class System;
+}
 
 namespace Kernel {
+class KernelSystem;
 class ClientPort;
 class ServerPort;
 class ServerSession;
@@ -58,7 +60,7 @@ public:
     /// Creates a port pair and registers this service with the given ServiceManager.
     void InstallAsService(SM::ServiceManager& service_manager);
     /// Creates a port pair and registers it on the kernel's global port registry.
-    void InstallAsNamedPort();
+    void InstallAsNamedPort(Kernel::KernelSystem& kernel);
 
     void HandleSyncRequest(Kernel::SharedPtr<Kernel::ServerSession> server_session) override;
 
@@ -183,7 +185,7 @@ private:
 };
 
 /// Initialize ServiceManager
-void Init(std::shared_ptr<SM::ServiceManager>& sm);
+void Init(Core::System& system);
 
 /// Shutdown ServiceManager
 void Shutdown();
@@ -194,7 +196,7 @@ extern std::unordered_map<std::string, Kernel::SharedPtr<Kernel::ClientPort>> g_
 struct ServiceModuleInfo {
     std::string name;
     u64 title_id;
-    std::function<void(SM::ServiceManager&)> init_function;
+    std::function<void(Core::System&)> init_function;
 };
 
 extern const std::array<ServiceModuleInfo, 40> service_module_map;

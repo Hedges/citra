@@ -24,11 +24,11 @@ void ReleaseThreadMutexes(Thread* thread) {
     thread->held_mutexes.clear();
 }
 
-Mutex::Mutex() {}
+Mutex::Mutex(KernelSystem& kernel) : WaitObject(kernel) {}
 Mutex::~Mutex() {}
 
-SharedPtr<Mutex> Mutex::Create(bool initial_locked, std::string name) {
-    SharedPtr<Mutex> mutex(new Mutex);
+SharedPtr<Mutex> KernelSystem::CreateMutex(bool initial_locked, std::string name) {
+    SharedPtr<Mutex> mutex(new Mutex(*this));
 
     mutex->lock_count = 0;
     mutex->name = std::move(name);
@@ -109,7 +109,7 @@ void Mutex::UpdatePriority() {
     if (!holding_thread)
         return;
 
-    u32 best_priority = THREADPRIO_LOWEST;
+    u32 best_priority = ThreadPrioLowest;
     for (auto& waiter : GetWaitingThreads()) {
         if (waiter->current_priority < best_priority)
             best_priority = waiter->current_priority;

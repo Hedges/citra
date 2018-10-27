@@ -12,6 +12,7 @@
 #include "core/arm/dyncom/arm_dyncom_interpreter.h"
 #include "core/core.h"
 #include "core/core_timing.h"
+#include "core/gdbstub/gdbstub.h"
 #include "core/hle/kernel/svc.h"
 #include "core/memory.h"
 
@@ -125,13 +126,22 @@ public:
     }
 
     void ExceptionRaised(VAddr pc, Dynarmic::A32::Exception exception) override {
-        if (exception == Dynarmic::A32::Exception::Breakpoint && GDBStub::IsServerEnabled()) {
-            GDBStub::BreakpointAddress breakpoint_data{pc - 8, GDBStub::BreakpointType::Execute};
-            parent.interpreter_state->RecordBreak(breakpoint_data);
-            parent.interpreter_state->ServeBreak();
-            return;
+        switch (exception) {
+        case Dynarmic::A32::Exception::UndefinedInstruction:
+        case Dynarmic::A32::Exception::UnpredictableInstruction:
+            break;
+        case Dynarmic::A32::Exception::Breakpoint:
+            if (GDBStub::IsConnected()) {
+                parent.jit->HaltExecution();
+                parent.SetPC(pc);
+                Kernel::Thread* thread = Kernel::GetCurrentThread();
+                parent.SaveContext(thread->context);
+                GDBStub::Break();
+                GDBStub::SendTrap(thread, 5);
+                return;
+            }
+            break;
         }
-
         ASSERT_MSG(false, "ExceptionRaised(exception = {}, pc = {:08X}, code = {:08X})",
                    static_cast<std::size_t>(exception), pc, MemoryReadCode(pc));
     }
