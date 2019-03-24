@@ -51,6 +51,7 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
             return ResultStatus::Success;
         }
         if (GDBStub::GetCpuStepFlag()) {
+            GDBStub::Break();
             tight_loop = false;
         }
     }
@@ -69,10 +70,6 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
         } else {
             cpu_core->Step();
         }
-    }
-
-    if (GDBStub::IsServerEnabled()) {
-        GDBStub::SetCpuStepFlag(false);
     }
 
     HW::Update();
