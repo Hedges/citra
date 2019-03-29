@@ -1242,11 +1242,17 @@ void SendTrap(Kernel::Thread* thread, int trap) {
         return;
     }
 
-    if (!halt_loop || current_thread == thread) {
-        current_thread = thread;
-        SendSignal(thread, trap);
+    // While single-stepping a thread, don't report traps from other threads.
+    DEBUG_ASSERT(thread != nullptr);
+    if (step_loop && current_thread != thread) {
+        return;
     }
+
+    step_loop = false;
     halt_loop = true;
     send_trap = false;
+
+    current_thread = thread;
+    SendSignal(thread, trap);
 }
 }; // namespace GDBStub
