@@ -610,9 +610,9 @@ void ARMul_State::ServeBreak() {
     Kernel::Thread* thread = system->Kernel().GetThreadManager().GetCurrentThread();
     system->CPU().SaveContext(thread->context);
 
-    if (last_bkpt_hit || GDBStub::IsMemoryBreak() || GDBStub::GetCpuStepFlag()) {
+    if (last_bkpt_hit) {
         last_bkpt_hit = false;
         GDBStub::Break();
-        GDBStub::SendTrap(thread, 5);
     }
+    GDBStub::SendTrap(thread, 5);
 }

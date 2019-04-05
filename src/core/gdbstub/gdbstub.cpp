@@ -887,8 +887,6 @@ static void Step() {
     }
     step_loop = true;
     halt_loop = false;
-    send_trap = true;
-    Core::CPU().ClearInstructionCache();
 }
 
 bool IsMemoryBreak() {
@@ -904,7 +902,6 @@ static void Continue() {
     memory_break = false;
     step_loop = false;
     halt_loop = false;
-    Core::CPU().ClearInstructionCache();
 }
 
 /**
