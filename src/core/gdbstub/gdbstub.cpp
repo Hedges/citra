@@ -1226,15 +1226,11 @@ bool IsConnected() {
 }
 
 bool GetCpuHaltFlag() {
-    return halt_loop;
+    return halt_loop && server_enabled;
 }
 
-bool GetCpuStepFlag() {
-    return step_loop;
-}
-
-void SetCpuStepFlag(bool is_step) {
-    step_loop = is_step;
+bool GetThreadStepFlag(Kernel::Thread* thread) {
+    return step_loop && server_enabled && current_thread == thread;
 }
 
 void SendTrap(Kernel::Thread* thread, int trap) {
@@ -1242,11 +1238,7 @@ void SendTrap(Kernel::Thread* thread, int trap) {
         return;
     }
 
-    // While single-stepping a thread, don't report traps from other threads.
     DEBUG_ASSERT(thread != nullptr);
-    if (step_loop && current_thread != thread) {
-        return;
-    }
 
     step_loop = false;
     halt_loop = true;

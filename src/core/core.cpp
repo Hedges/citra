@@ -42,28 +42,30 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
         return ResultStatus::ErrorNotInitialized;
     }
 
-    if (GDBStub::IsServerEnabled()) {
-        GDBStub::HandlePacket();
-
-        // If the loop is halted and we want to step, use a tiny (1) number of instructions to
-        // execute. Otherwise, get out of the loop function.
-        if (GDBStub::GetCpuHaltFlag()) {
-            return ResultStatus::Success;
-        }
-        if (GDBStub::GetCpuStepFlag()) {
-            GDBStub::Break();
-            tight_loop = false;
-        }
-    }
+    GDBStub::HandlePacket();
 
     // If we don't have a currently active thread then don't execute instructions,
     // instead advance to the next event and try to yield to the next thread
-    if (kernel->GetThreadManager().GetCurrentThread() == nullptr) {
+    auto sched_thread = kernel->GetThreadManager().GetCurrentThread();
+    if (sched_thread == nullptr) {
         LOG_TRACE(Core_ARM11, "Idling");
         timing->Idle();
         timing->Advance();
         PrepareReschedule();
+    } else if (GDBStub::GetCpuHaltFlag()) {
+        // A program break was issued to GDB which, by default, (in full-stop mode)
+        // halts the CPU completely. No thread may run until further notice.
+        // It's similar to pausing the emulated system, but it keeps GDBStub active.
+        //
+        // HACK: Don't advance idle-cycles here. If we do, games seem likely to deadlock.
+        return ResultStatus::Success;
     } else {
+        if (GDBStub::GetThreadStepFlag(sched_thread)) {
+            // GDBStub::Halt();
+            GDBStub::Break();
+            tight_loop = false;
+        }
+
         timing->Advance();
         if (tight_loop) {
             cpu_core->Run();
