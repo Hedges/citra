@@ -886,7 +886,7 @@ static void Step() {
         Core::CPU().LoadContext(current_thread->context);
     }
     step_loop = true;
-    halt_loop = true;
+    halt_loop = false;
     send_trap = true;
     Core::CPU().ClearInstructionCache();
 }

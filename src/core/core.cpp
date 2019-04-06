@@ -48,11 +48,10 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
         // If the loop is halted and we want to step, use a tiny (1) number of instructions to
         // execute. Otherwise, get out of the loop function.
         if (GDBStub::GetCpuHaltFlag()) {
-            if (GDBStub::GetCpuStepFlag()) {
-                tight_loop = false;
-            } else {
-                return ResultStatus::Success;
-            }
+            return ResultStatus::Success;
+        }
+        if (GDBStub::GetCpuStepFlag()) {
+            tight_loop = false;
         }
     }
 
