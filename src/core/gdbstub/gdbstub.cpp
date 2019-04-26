@@ -886,9 +886,7 @@ static void Step() {
         Core::CPU().LoadContext(current_thread->context);
     }
     step_loop = true;
-    halt_loop = true;
-    send_trap = true;
-    Core::CPU().ClearInstructionCache();
+    halt_loop = false;
 }
 
 bool IsMemoryBreak() {
@@ -904,7 +902,6 @@ static void Continue() {
     memory_break = false;
     step_loop = false;
     halt_loop = false;
-    Core::CPU().ClearInstructionCache();
 }
 
 /**
@@ -1226,15 +1223,11 @@ bool IsConnected() {
 }
 
 bool GetCpuHaltFlag() {
-    return halt_loop;
+    return halt_loop && server_enabled;
 }
 
-bool GetCpuStepFlag() {
-    return step_loop;
-}
-
-void SetCpuStepFlag(bool is_step) {
-    step_loop = is_step;
+bool GetThreadStepFlag(Kernel::Thread* thread) {
+    return step_loop && server_enabled && current_thread == thread;
 }
 
 void SendTrap(Kernel::Thread* thread, int trap) {
@@ -1242,11 +1235,13 @@ void SendTrap(Kernel::Thread* thread, int trap) {
         return;
     }
 
-    if (!halt_loop || current_thread == thread) {
-        current_thread = thread;
-        SendSignal(thread, trap);
-    }
+    DEBUG_ASSERT(thread != nullptr);
+
+    step_loop = false;
     halt_loop = true;
     send_trap = false;
+
+    current_thread = thread;
+    SendSignal(thread, trap);
 }
 }; // namespace GDBStub
