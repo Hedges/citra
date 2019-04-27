@@ -2,6 +2,10 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#ifdef _WIN32
+extern "C" __declspec(dllimport) void __stdcall OutputDebugStringA(const char *lpOutputString);
+#endif
+
 #include <algorithm>
 #include <cinttypes>
 #include <map>
@@ -806,6 +810,9 @@ void SVC::OutputDebugString(VAddr address, s32 len) {
 
     std::string string(len, ' ');
     memory.ReadBlock(*kernel.GetCurrentProcess(), address, string.data(), len);
+#ifdef _WIN32
+    ::OutputDebugStringA((string + "\r\n").c_str());
+#endif
     LOG_DEBUG(Debug_Emulated, "{}", string);
 }
 
