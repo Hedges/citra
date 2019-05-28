@@ -10,15 +10,20 @@
 #include "core/settings.h"
 #include "ui_configure.h"
 
-ConfigureDialog::ConfigureDialog(QWidget* parent, HotkeyRegistry& registry)
-    : QDialog(parent), registry(registry), ui(new Ui::ConfigureDialog) {
+ConfigureDialog::ConfigureDialog(QWidget* parent, HotkeyRegistry& registry, bool enable_web_config)
+    : QDialog(parent), ui(new Ui::ConfigureDialog), registry(registry) {
     ui->setupUi(this);
     ui->hotkeysTab->Populate(registry);
+    ui->webTab->SetWebServiceConfigEnabled(enable_web_config);
 
     this->PopulateSelectionList();
+
+    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
+
     connect(ui->uiTab, &ConfigureUi::languageChanged, this, &ConfigureDialog::onLanguageChanged);
     connect(ui->selectorList, &QListWidget::itemSelectionChanged, this,
             &ConfigureDialog::UpdateVisibleTabs);
+
     adjustSize();
     ui->selectorList->setCurrentRow(0);
 
