@@ -14,18 +14,17 @@
 ConfigureGraphics::ConfigureGraphics(QWidget* parent)
     : QWidget(parent), ui(new Ui::ConfigureGraphics) {
     ui->setupUi(this);
-    setConfiguration();
+    SetConfiguration();
 
     connect(ui->toggle_frame_limit, &QCheckBox::toggled, ui->frame_limit, &QSpinBox::setEnabled);
 
     ui->layoutBox->setEnabled(!Settings::values.custom_layout);
 
     ui->hw_renderer_group->setEnabled(ui->toggle_hw_renderer->isChecked());
-    connect(ui->toggle_hw_renderer, &QCheckBox::stateChanged, ui->hw_renderer_group,
+    connect(ui->toggle_hw_renderer, &QCheckBox::toggled, ui->hw_renderer_group,
             &QWidget::setEnabled);
     ui->hw_shader_group->setEnabled(ui->toggle_hw_shader->isChecked());
-    connect(ui->toggle_hw_shader, &QCheckBox::stateChanged, ui->hw_shader_group,
-            &QWidget::setEnabled);
+    connect(ui->toggle_hw_shader, &QCheckBox::toggled, ui->hw_shader_group, &QWidget::setEnabled);
 #ifdef __APPLE__
     connect(ui->toggle_hw_shader, &QCheckBox::stateChanged, this, [this](int state) {
         if (state == Qt::Checked) {
@@ -53,7 +52,7 @@ ConfigureGraphics::ConfigureGraphics(QWidget* parent)
 
 ConfigureGraphics::~ConfigureGraphics() = default;
 
-void ConfigureGraphics::setConfiguration() {
+void ConfigureGraphics::SetConfiguration() {
     ui->toggle_hw_renderer->setChecked(Settings::values.use_hw_renderer);
     ui->toggle_hw_shader->setChecked(Settings::values.use_hw_shader);
     ui->toggle_accurate_gs->setChecked(Settings::values.shaders_accurate_gs);
@@ -75,7 +74,7 @@ void ConfigureGraphics::setConfiguration() {
     ui->bg_button->setIcon(color_icon);
 }
 
-void ConfigureGraphics::applyConfiguration() {
+void ConfigureGraphics::ApplyConfiguration() {
     Settings::values.use_hw_renderer = ui->toggle_hw_renderer->isChecked();
     Settings::values.use_hw_shader = ui->toggle_hw_shader->isChecked();
     Settings::values.shaders_accurate_gs = ui->toggle_accurate_gs->isChecked();
@@ -95,6 +94,6 @@ void ConfigureGraphics::applyConfiguration() {
     Settings::values.bg_blue = static_cast<float>(bg_color.blueF());
 }
 
-void ConfigureGraphics::retranslateUi() {
+void ConfigureGraphics::RetranslateUI() {
     ui->retranslateUi(this);
 }
