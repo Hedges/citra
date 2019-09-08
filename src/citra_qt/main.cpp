@@ -18,6 +18,9 @@
 #ifdef __APPLE__
 #include <unistd.h> // for chdir
 #endif
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "citra_qt/aboutdialog.h"
 #include "citra_qt/applets/mii_selector.h"
 #include "citra_qt/applets/swkbd.h"
@@ -353,18 +356,6 @@ void GMainWindow::InitializeRecentFileMenuActions() {
 void GMainWindow::InitializeHotkeys() {
     hotkey_registry.LoadHotkeys();
 
-    ui.action_Load_File->setShortcut(hotkey_registry.GetKeySequence("Main Window", "Load File"));
-    ui.action_Load_File->setShortcutContext(
-        hotkey_registry.GetShortcutContext("Main Window", "Load File"));
-
-    ui.action_Exit->setShortcut(hotkey_registry.GetKeySequence("Main Window", "Exit Citra"));
-    ui.action_Exit->setShortcutContext(
-        hotkey_registry.GetShortcutContext("Main Window", "Exit Citra"));
-
-    ui.action_Stop->setShortcut(hotkey_registry.GetKeySequence("Main Window", "Stop Emulation"));
-    ui.action_Stop->setShortcutContext(
-        hotkey_registry.GetShortcutContext("Main Window", "Stop Emulation"));
-
     ui.action_Show_Filter_Bar->setShortcut(
         hotkey_registry.GetKeySequence("Main Window", "Toggle Filter Bar"));
     ui.action_Show_Filter_Bar->setShortcutContext(
@@ -376,7 +367,13 @@ void GMainWindow::InitializeHotkeys() {
         hotkey_registry.GetShortcutContext("Main Window", "Toggle Status Bar"));
 
     connect(hotkey_registry.GetHotkey("Main Window", "Load File", this), &QShortcut::activated,
-            this, &GMainWindow::OnMenuLoadFile);
+            ui.action_Load_File, &QAction::trigger);
+
+    connect(hotkey_registry.GetHotkey("Main Window", "Stop Emulation", this), &QShortcut::activated,
+            ui.action_Stop, &QAction::trigger);
+
+    connect(hotkey_registry.GetHotkey("Main Window", "Exit Citra", this), &QShortcut::activated,
+            ui.action_Exit, &QAction::trigger);
 
     connect(hotkey_registry.GetHotkey("Main Window", "Continue/Pause Emulation", this),
             &QShortcut::activated, this, [&] {
@@ -606,7 +603,7 @@ void GMainWindow::ConnectMenuEvents() {
     connect(ui.action_Capture_Screenshot, &QAction::triggered, this,
             &GMainWindow::OnCaptureScreenshot);
 
-#ifndef ENABLE_FFMPEG
+#ifndef ENABLE_FFMPEG_VIDEO_DUMPER
     ui.action_Dump_Video->setEnabled(false);
 #endif
     connect(ui.action_Dump_Video, &QAction::triggered, [this] {
@@ -713,6 +710,18 @@ void GMainWindow::ShowNoUpdatePrompt() {
 
 void GMainWindow::OnOpenUpdater() {
     updater->LaunchUI();
+}
+
+void GMainWindow::PreventOSSleep() {
+#ifdef _WIN32
+    SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
+#endif
+}
+
+void GMainWindow::AllowOSSleep() {
+#ifdef _WIN32
+    SetThreadExecutionState(ES_CONTINUOUS);
+#endif
 }
 
 bool GMainWindow::LoadROM(const QString& filename) {
@@ -891,11 +900,21 @@ void GMainWindow::BootGame(const QString& filename) {
 }
 
 void GMainWindow::ShutdownGame() {
+    if (!emulation_running) {
+        return;
+    }
+
+    if (ui.action_Fullscreen->isChecked()) {
+        HideFullscreen();
+    }
+
     if (Core::System::GetInstance().VideoDumper().IsDumping()) {
         game_shutdown_delayed = true;
         OnStopVideoDumping();
         return;
     }
+
+    AllowOSSleep();
 
     discord_rpc->Pause();
     OnStopRecordingPlayback();
@@ -1214,6 +1233,8 @@ void GMainWindow::OnStartGame() {
         movie_record_path.clear();
     }
 
+    PreventOSSleep();
+
     emu_thread->SetRunning(true);
     qRegisterMetaType<Core::System::ResultStatus>("Core::System::ResultStatus");
     qRegisterMetaType<std::string>("std::string");
@@ -1241,6 +1262,8 @@ void GMainWindow::OnPauseGame() {
     ui.action_Pause->setEnabled(false);
     ui.action_Stop->setEnabled(true);
     ui.action_Capture_Screenshot->setEnabled(false);
+
+    AllowOSSleep();
 }
 
 void GMainWindow::OnStopGame() {
