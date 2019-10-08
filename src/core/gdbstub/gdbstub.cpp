@@ -97,24 +97,39 @@ constexpr char target_xml[] =
          and the CPSR in the "g" packet.  -->
 
     <reg name="cpsr" bitsize="32" regnum="25"/>
-  </feature>
-  <feature name="org.gnu.gdb.arm.vfp">
-    <reg name="d0" bitsize="64" type="float"/>
-    <reg name="d1" bitsize="64" type="float"/>
-    <reg name="d2" bitsize="64" type="float"/>
-    <reg name="d3" bitsize="64" type="float"/>
-    <reg name="d4" bitsize="64" type="float"/>
-    <reg name="d5" bitsize="64" type="float"/>
-    <reg name="d6" bitsize="64" type="float"/>
-    <reg name="d7" bitsize="64" type="float"/>
-    <reg name="d8" bitsize="64" type="float"/>
-    <reg name="d9" bitsize="64" type="float"/>
-    <reg name="d10" bitsize="64" type="float"/>
-    <reg name="d11" bitsize="64" type="float"/>
-    <reg name="d12" bitsize="64" type="float"/>
-    <reg name="d13" bitsize="64" type="float"/>
-    <reg name="d14" bitsize="64" type="float"/>
-    <reg name="d15" bitsize="64" type="float"/>
+
+    <reg name="s0" bitsize="32"/>
+    <reg name="s1" bitsize="32"/>
+    <reg name="s2" bitsize="32"/>
+    <reg name="s3" bitsize="32"/>
+    <reg name="s4" bitsize="32"/>
+    <reg name="s5" bitsize="32"/>
+    <reg name="s6" bitsize="32"/>
+    <reg name="s7" bitsize="32"/>
+    <reg name="s8" bitsize="32"/>
+    <reg name="s9" bitsize="32"/>
+    <reg name="s10" bitsize="32"/>
+    <reg name="s11" bitsize="32"/>
+    <reg name="s12" bitsize="32"/>
+    <reg name="s13" bitsize="32"/>
+    <reg name="s14" bitsize="32"/>
+    <reg name="s15" bitsize="32"/>
+    <reg name="s16" bitsize="32"/>
+    <reg name="s17" bitsize="32"/>
+    <reg name="s18" bitsize="32"/>
+    <reg name="s19" bitsize="32"/>
+    <reg name="s20" bitsize="32"/>
+    <reg name="s21" bitsize="32"/>
+    <reg name="s22" bitsize="32"/>
+    <reg name="s23" bitsize="32"/>
+    <reg name="s24" bitsize="32"/>
+    <reg name="s25" bitsize="32"/>
+    <reg name="s26" bitsize="32"/>
+    <reg name="s27" bitsize="32"/>
+    <reg name="s28" bitsize="32"/>
+    <reg name="s29" bitsize="32"/>
+    <reg name="s30" bitsize="32"/>
+    <reg name="s31" bitsize="32"/>
     <reg name="fpscr" bitsize="32" type="int" group="float"/>
   </feature>
 </target>
@@ -749,7 +764,7 @@ static void ReadRegisters() {
     bufptr += 8;
 
     for (u32 reg = D0_REGISTER; reg < FPSCR_REGISTER; reg++) {
-        LongToGdbHex(bufptr + reg * 16, FpuRead(reg, current_thread));
+        LongToGdbHex(bufptr + (reg-D0_REGISTER) * 16, FpuRead(reg, current_thread));
     }
 
     bufptr += 16 * 16;
