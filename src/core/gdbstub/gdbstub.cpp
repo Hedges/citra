@@ -66,6 +66,7 @@ constexpr u32 PC_REGISTER = 15;
 constexpr u32 CPSR_REGISTER = 25;
 constexpr u32 D0_REGISTER = 26;
 constexpr u32 FPSCR_REGISTER = 42;
+constexpr u32 FPEXC_REGISTER = 43;
 
 // For sample XML files see the GDB source /gdb/features
 // GDB also wants the l character at the start
@@ -221,6 +222,8 @@ static u64 FpuRead(std::size_t id, Kernel::Thread* thread = nullptr) {
         return ret;
     } else if (id == FPSCR_REGISTER) {
         return thread->context->GetFpscr();
+    } else if (id == FPEXC_REGISTER) {
+        return thread->context->GetFpexc();
     } else {
         return 0;
     }
@@ -236,6 +239,8 @@ static void FpuWrite(std::size_t id, u64 val, Kernel::Thread* thread = nullptr) 
         thread->context->SetFpuRegister(2 * (id - D0_REGISTER) + 1, static_cast<u32>(val >> 32));
     } else if (id == FPSCR_REGISTER) {
         return thread->context->SetFpscr(static_cast<u32>(val));
+    } else if (id == FPEXC_REGISTER) {
+        return thread->context->SetFpexc(static_cast<u32>(val));
     }
 }
 
@@ -739,6 +744,8 @@ static void ReadRegister() {
         LongToGdbHex(reply, FpuRead(id, current_thread));
     } else if (id == FPSCR_REGISTER) {
         IntToGdbHex(reply, static_cast<u32>(FpuRead(id, current_thread)));
+    } else if (id == FPEXC_REGISTER) {
+        IntToGdbHex(reply, static_cast<u32>(FpuRead(id, current_thread)));
     } else {
         return SendReply("E01");
     }
@@ -771,6 +778,10 @@ static void ReadRegisters() {
 
     IntToGdbHex(bufptr, static_cast<u32>(FpuRead(FPSCR_REGISTER, current_thread)));
 
+    //bufptr += 8;
+
+    //IntToGdbHex(bufptr, static_cast<u32>(FpuRead(FPEXC_REGISTER, current_thread)));
+
     SendReply(reinterpret_cast<char*>(buffer));
 }
 
@@ -793,6 +804,8 @@ static void WriteRegister() {
         FpuWrite(id, GdbHexToLong(buffer_ptr), current_thread);
     } else if (id == FPSCR_REGISTER) {
         FpuWrite(id, GdbHexToInt(buffer_ptr), current_thread);
+    } else if (id == FPEXC_REGISTER) {
+        FpuWrite(id, GdbHexToInt(buffer_ptr), current_thread);
     } else {
         return SendReply("E01");
     }
@@ -814,15 +827,11 @@ static void WriteRegisters() {
             RegWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
         } else if (reg == CPSR_REGISTER) {
             RegWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
-        } else if (reg == CPSR_REGISTER - 1) {
-            // Dummy FPA register, ignore
-        } else if (reg < CPSR_REGISTER) {
-            // Dummy FPA registers, ignore
-            i += 2;
         } else if (reg >= D0_REGISTER && reg < FPSCR_REGISTER) {
             FpuWrite(reg, GdbHexToLong(buffer_ptr + i * 16));
-            i++; // Skip padding
         } else if (reg == FPSCR_REGISTER) {
+            FpuWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
+        } else if (reg == FPEXC_REGISTER) {
             FpuWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
         }
     }
