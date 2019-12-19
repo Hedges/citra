@@ -13,6 +13,7 @@
 #include "common/file_util.h"
 #include "common/logging/log.h"
 #include "common/param_package.h"
+#include "core/frontend/mic.h"
 #include "core/hle/service/service.h"
 #include "core/settings.h"
 #include "input_common/main.h"
@@ -120,10 +121,11 @@ void Config::ReadValues() {
     Settings::values.use_shader_jit = sdl2_config->GetBoolean("Renderer", "use_shader_jit", true);
     Settings::values.resolution_factor =
         static_cast<u16>(sdl2_config->GetInteger("Renderer", "resolution_factor", 1));
-    Settings::values.vsync_enabled = sdl2_config->GetBoolean("Renderer", "vsync_enabled", false);
     Settings::values.use_frame_limit = sdl2_config->GetBoolean("Renderer", "use_frame_limit", true);
     Settings::values.frame_limit =
         static_cast<u16>(sdl2_config->GetInteger("Renderer", "frame_limit", 100));
+    Settings::values.use_vsync_new =
+        static_cast<u16>(sdl2_config->GetInteger("Renderer", "use_vsync_new", 1));
 
     Settings::values.render_3d = static_cast<Settings::StereoRenderOption>(
         sdl2_config->GetInteger("Renderer", "render_3d", 0));
@@ -162,6 +164,12 @@ void Config::ReadValues() {
     Settings::values.custom_bottom_bottom =
         static_cast<u16>(sdl2_config->GetInteger("Layout", "custom_bottom_bottom", 480));
 
+    // Utility
+    Settings::values.dump_textures = sdl2_config->GetBoolean("Utility", "dump_textures", false);
+    Settings::values.custom_textures = sdl2_config->GetBoolean("Utility", "custom_textures", false);
+    Settings::values.preload_textures =
+        sdl2_config->GetBoolean("Utility", "preload_textures", false);
+
     // Audio
     Settings::values.enable_dsp_lle = sdl2_config->GetBoolean("Audio", "enable_dsp_lle", false);
     Settings::values.enable_dsp_lle_multithread =
@@ -172,7 +180,7 @@ void Config::ReadValues() {
     Settings::values.audio_device_id = sdl2_config->GetString("Audio", "output_device", "auto");
     Settings::values.volume = static_cast<float>(sdl2_config->GetReal("Audio", "volume", 1));
     Settings::values.mic_input_device =
-        sdl2_config->GetString("Audio", "mic_input_device", "Default");
+        sdl2_config->GetString("Audio", "mic_input_device", Frontend::Mic::default_device_name);
     Settings::values.mic_input_type =
         static_cast<Settings::MicInputType>(sdl2_config->GetInteger("Audio", "mic_input_type", 0));
 

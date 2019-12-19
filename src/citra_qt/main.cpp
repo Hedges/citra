@@ -5,12 +5,11 @@
 #include <clocale>
 #include <memory>
 #include <thread>
-#include <glad/glad.h>
-#define QT_NO_OPENGL
 #include <QDesktopWidget>
 #include <QFileDialog>
 #include <QFutureWatcher>
 #include <QMessageBox>
+#include <QOpenGLFunctions_3_3_Core>
 #include <QSysInfo>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QtGui>
@@ -50,6 +49,7 @@
 #include "citra_qt/hotkeys.h"
 #include "citra_qt/main.h"
 #include "citra_qt/multiplayer/state.h"
+#include "citra_qt/qt_image_interface.h"
 #include "citra_qt/uisettings.h"
 #include "citra_qt/updater/updater.h"
 #include "citra_qt/util/clickable_label.h"
@@ -71,6 +71,7 @@
 #include "core/file_sys/archive_extsavedata.h"
 #include "core/file_sys/archive_source_sd_savedata.h"
 #include "core/frontend/applets/default_applets.h"
+#include "core/frontend/scope_acquire_context.h"
 #include "core/gdbstub/gdbstub.h"
 #include "core/hle/service/fs/archive.h"
 #include "core/hle/service/nfc/nfc.h"
@@ -427,8 +428,11 @@ void GMainWindow::InitializeHotkeys() {
                 Settings::values.use_frame_limit = !Settings::values.use_frame_limit;
                 UpdateStatusBar();
             });
-    // We use "static" here in order to avoid capturing by lambda due to a MSVC bug, which makes the
-    // variable hold a garbage value after this function exits
+    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Texture Dumping", this),
+            &QShortcut::activated, this,
+            [&] { Settings::values.dump_textures = !Settings::values.dump_textures; });
+    // We use "static" here in order to avoid capturing by lambda due to a MSVC bug, which makes
+    // the variable hold a garbage value after this function exits
     static constexpr u16 SPEED_LIMIT_STEP = 5;
     connect(hotkey_registry.GetHotkey("Main Window", "Increase Speed Limit", this),
             &QShortcut::activated, this, [&] {
@@ -764,13 +768,14 @@ bool GMainWindow::LoadROM(const QString& filename) {
         ShutdownGame();
 
     render_window->InitRenderTarget();
-    render_window->MakeCurrent();
+
+    Frontend::ScopeAcquireContext scope(*render_window);
 
     const QString below_gl33_title = tr("OpenGL 3.3 Unsupported");
     const QString below_gl33_message = tr("Your GPU may not support OpenGL 3.3, or you do not "
                                           "have the latest graphics driver.");
 
-    if (!gladLoadGL()) {
+    if (!QOpenGLContext::globalShareContext()->versionFunctions<QOpenGLFunctions_3_3_Core>()) {
         QMessageBox::critical(this, below_gl33_title, below_gl33_message);
         return false;
     }
@@ -889,9 +894,8 @@ void GMainWindow::BootGame(const QString& filename) {
         return;
 
     // Create and start the emulation thread
-    emu_thread = std::make_unique<EmuThread>(render_window);
+    emu_thread = std::make_unique<EmuThread>(*render_window);
     emit EmulationStarting(emu_thread.get());
-    render_window->moveContext();
     emu_thread->start();
 
     connect(render_window, &GRenderWindow::Closed, this, &GMainWindow::OnStopGame);
@@ -1015,6 +1019,9 @@ void GMainWindow::ShutdownGame() {
     UpdateWindowTitle();
 
     game_path.clear();
+
+    // When closing the game, destroy the GLWindow to clear the context after the game is closed
+    render_window->ReleaseRenderTarget();
 }
 
 void GMainWindow::StoreRecentFile(const QString& filename) {
@@ -1079,6 +1086,16 @@ void GMainWindow::OnGameListOpenFolder(u64 data_id, GameListOpenTarget target) {
         open_target = "Update Data";
         path = Service::AM::GetTitlePath(Service::FS::MediaType::SDMC, data_id + 0xe00000000) +
                "content/";
+        break;
+    case GameListOpenTarget::TEXTURE_DUMP:
+        open_target = "Dumped Textures";
+        path = fmt::format("{}textures/{:016X}/",
+                           FileUtil::GetUserPath(FileUtil::UserPath::DumpDir), data_id);
+        break;
+    case GameListOpenTarget::TEXTURE_LOAD:
+        open_target = "Custom Textures";
+        path = fmt::format("{}textures/{:016X}/",
+                           FileUtil::GetUserPath(FileUtil::UserPath::LoadDir), data_id);
         break;
     default:
         LOG_ERROR(Frontend, "Unexpected target {}", static_cast<int>(target));
@@ -1855,14 +1872,33 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
     QWidget::closeEvent(event);
 }
 
-static bool IsSingleFileDropEvent(QDropEvent* event) {
-    const QMimeData* mimeData = event->mimeData();
-    return mimeData->hasUrls() && mimeData->urls().length() == 1;
+static bool IsSingleFileDropEvent(const QMimeData* mime) {
+    return mime->hasUrls() && mime->urls().length() == 1;
 }
 
-void GMainWindow::dropEvent(QDropEvent* event) {
-    if (!IsSingleFileDropEvent(event)) {
-        return;
+static const std::array<std::string, 8> AcceptedExtensions = {"cci",  "3ds", "cxi", "bin",
+                                                              "3dsx", "app", "elf", "axf"};
+
+static bool IsCorrectFileExtension(const QMimeData* mime) {
+    const QString& filename = mime->urls().at(0).toLocalFile();
+    return std::find(AcceptedExtensions.begin(), AcceptedExtensions.end(),
+                     QFileInfo(filename).suffix().toStdString()) != AcceptedExtensions.end();
+}
+
+static bool IsAcceptableDropEvent(QDropEvent* event) {
+    return IsSingleFileDropEvent(event->mimeData()) && IsCorrectFileExtension(event->mimeData());
+}
+
+void GMainWindow::AcceptDropEvent(QDropEvent* event) {
+    if (IsAcceptableDropEvent(event)) {
+        event->setDropAction(Qt::DropAction::LinkAction);
+        event->accept();
+    }
+}
+
+bool GMainWindow::DropAction(QDropEvent* event) {
+    if (!IsAcceptableDropEvent(event)) {
+        return false;
     }
 
     const QMimeData* mime_data = event->mimeData();
@@ -1877,16 +1913,19 @@ void GMainWindow::dropEvent(QDropEvent* event) {
             BootGame(filename);
         }
     }
+    return true;
+}
+
+void GMainWindow::dropEvent(QDropEvent* event) {
+    DropAction(event);
 }
 
 void GMainWindow::dragEnterEvent(QDragEnterEvent* event) {
-    if (IsSingleFileDropEvent(event)) {
-        event->acceptProposedAction();
-    }
+    AcceptDropEvent(event);
 }
 
 void GMainWindow::dragMoveEvent(QDragMoveEvent* event) {
-    event->acceptProposedAction();
+    AcceptDropEvent(event);
 }
 
 bool GMainWindow::ConfirmChangeGame() {
@@ -2036,11 +2075,20 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName("Citra team");
     QCoreApplication::setApplicationName("Citra");
 
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setSwapInterval(0);
+    // TODO: expose a setting for buffer value (ie default/single/double/triple)
+    format.setSwapBehavior(QSurfaceFormat::DefaultSwapBehavior);
+    QSurfaceFormat::setDefaultFormat(format);
+
 #ifdef __APPLE__
     std::string bin_path = FileUtil::GetBundleDirectory() + DIR_SEP + "..";
     chdir(bin_path.c_str());
 #endif
-
+    QCoreApplication::setAttribute(Qt::AA_DontCheckOpenGLContextThreadAffinity);
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QApplication app(argc, argv);
 
     // Qt changes the locale and causes issues in float conversion using std::to_string() when
@@ -2058,6 +2106,9 @@ int main(int argc, char* argv[]) {
     Frontend::RegisterDefaultApplets();
     Core::System::GetInstance().RegisterMiiSelector(std::make_shared<QtMiiSelector>(main_window));
     Core::System::GetInstance().RegisterSoftwareKeyboard(std::make_shared<QtKeyboard>(main_window));
+
+    // Register Qt image interface
+    Core::System::GetInstance().RegisterImageInterface(std::make_shared<QtImageInterface>());
 
     main_window.show();
 

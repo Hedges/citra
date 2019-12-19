@@ -144,7 +144,6 @@ struct Values {
     bool shaders_accurate_mul;
     bool use_shader_jit;
     u16 resolution_factor;
-    bool vsync_enabled;
     bool use_frame_limit;
     u16 frame_limit;
 
@@ -169,6 +168,12 @@ struct Values {
 
     bool filter_mode;
     std::string pp_shader_name;
+
+    bool dump_textures;
+    bool custom_textures;
+    bool preload_textures;
+
+    bool use_vsync_new;
 
     // Audio
     bool enable_dsp_lle;
