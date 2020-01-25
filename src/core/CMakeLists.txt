@@ -74,6 +74,8 @@ add_library(core STATIC
     file_sys/ivfc_archive.h
     file_sys/ncch_container.cpp
     file_sys/ncch_container.h
+    file_sys/patch.cpp
+    file_sys/patch.h
     file_sys/path_parser.cpp
     file_sys/path_parser.h
     file_sys/romfs_reader.cpp
@@ -106,6 +108,8 @@ add_library(core STATIC
     frontend/input.h
     frontend/mic.h
     frontend/mic.cpp
+    frontend/scope_acquire_context.cpp
+    frontend/scope_acquire_context.h
     gdbstub/gdbstub.cpp
     gdbstub/gdbstub.h
     hle/applets/applet.cpp

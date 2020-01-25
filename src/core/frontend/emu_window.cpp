@@ -10,6 +10,8 @@
 
 namespace Frontend {
 
+GraphicsContext::~GraphicsContext() = default;
+
 class EmuWindow::TouchState : public Input::Factory<Input::TouchDevice>,
                               public std::enable_shared_from_this<TouchState> {
 public:
@@ -116,6 +118,11 @@ void EmuWindow::TouchPressed(unsigned framebuffer_x, unsigned framebuffer_y) {
         static_cast<float>(framebuffer_y - framebuffer_layout.bottom_screen.top) /
         (framebuffer_layout.bottom_screen.bottom - framebuffer_layout.bottom_screen.top);
 
+    if (!framebuffer_layout.is_rotated) {
+        std::swap(touch_state->touch_x, touch_state->touch_y);
+        touch_state->touch_x = 1.f - touch_state->touch_x;
+    }
+
     touch_state->touch_pressed = true;
 }
 
@@ -143,17 +150,21 @@ void EmuWindow::UpdateCurrentFramebufferLayout(unsigned width, unsigned height) 
     } else {
         switch (Settings::values.layout_option) {
         case Settings::LayoutOption::SingleScreen:
-            layout = Layout::SingleFrameLayout(width, height, Settings::values.swap_screen);
+            layout = Layout::SingleFrameLayout(width, height, Settings::values.swap_screen,
+                                               Settings::values.upright_screen);
             break;
         case Settings::LayoutOption::LargeScreen:
-            layout = Layout::LargeFrameLayout(width, height, Settings::values.swap_screen);
+            layout = Layout::LargeFrameLayout(width, height, Settings::values.swap_screen,
+                                              Settings::values.upright_screen);
             break;
         case Settings::LayoutOption::SideScreen:
-            layout = Layout::SideFrameLayout(width, height, Settings::values.swap_screen);
+            layout = Layout::SideFrameLayout(width, height, Settings::values.swap_screen,
+                                             Settings::values.upright_screen);
             break;
         case Settings::LayoutOption::Default:
         default:
-            layout = Layout::DefaultFrameLayout(width, height, Settings::values.swap_screen);
+            layout = Layout::DefaultFrameLayout(width, height, Settings::values.swap_screen,
+                                                Settings::values.upright_screen);
             break;
         }
     }

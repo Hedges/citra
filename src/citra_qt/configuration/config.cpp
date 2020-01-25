@@ -57,7 +57,7 @@ const std::array<std::array<int, 5>, Settings::NativeAnalog::NumAnalogs> Config:
 // This must be in alphabetical order according to action name as it must have the same order as
 // UISetting::values.shortcuts, which is alphabetically ordered.
 // clang-format off
-const std::array<UISettings::Shortcut, 20> default_hotkeys{
+const std::array<UISettings::Shortcut, 21> default_hotkeys{
     {{QStringLiteral("Advance Frame"),            QStringLiteral("Main Window"), {QStringLiteral("\\"), Qt::ApplicationShortcut}},
      {QStringLiteral("Capture Screenshot"),       QStringLiteral("Main Window"), {QStringLiteral("Ctrl+P"), Qt::ApplicationShortcut}},
      {QStringLiteral("Continue/Pause Emulation"), QStringLiteral("Main Window"), {QStringLiteral("F4"), Qt::WindowShortcut}},
@@ -70,6 +70,7 @@ const std::array<UISettings::Shortcut, 20> default_hotkeys{
      {QStringLiteral("Load File"),                QStringLiteral("Main Window"), {QStringLiteral("Ctrl+O"), Qt::WindowShortcut}},
      {QStringLiteral("Remove Amiibo"),            QStringLiteral("Main Window"), {QStringLiteral("F3"), Qt::ApplicationShortcut}},
      {QStringLiteral("Restart Emulation"),        QStringLiteral("Main Window"), {QStringLiteral("F6"), Qt::WindowShortcut}},
+     {QStringLiteral("Rotate Screens Upright"),   QStringLiteral("Main Window"), {QStringLiteral("F8"), Qt::WindowShortcut}},
      {QStringLiteral("Stop Emulation"),           QStringLiteral("Main Window"), {QStringLiteral("F5"), Qt::WindowShortcut}},
      {QStringLiteral("Swap Screens"),             QStringLiteral("Main Window"), {QStringLiteral("F9"), Qt::WindowShortcut}},
      {QStringLiteral("Toggle Filter Bar"),        QStringLiteral("Main Window"), {QStringLiteral("Ctrl+F"), Qt::WindowShortcut}},
@@ -234,11 +235,15 @@ void Config::ReadControlValues() {
 }
 
 void Config::ReadUtilityValues() {
-    qt_config->beginGroup("Utility");
+    qt_config->beginGroup(QStringLiteral("Utility"));
 
-    Settings::values.dump_textures = ReadSetting("dump_textures", false).toBool();
-    Settings::values.custom_textures = ReadSetting("custom_textures", false).toBool();
-    Settings::values.preload_textures = ReadSetting("preload_textures", false).toBool();
+    Settings::values.dump_textures = ReadSetting(QStringLiteral("dump_textures"), false).toBool();
+    Settings::values.custom_textures =
+        ReadSetting(QStringLiteral("custom_textures"), false).toBool();
+    Settings::values.preload_textures =
+        ReadSetting(QStringLiteral("preload_textures"), false).toBool();
+    Settings::values.use_disk_shader_cache =
+        ReadSetting(QStringLiteral("use_disk_shader_cache"), true).toBool();
 
     qt_config->endGroup();
 }
@@ -295,6 +300,7 @@ void Config::ReadLayoutValues() {
     Settings::values.layout_option =
         static_cast<Settings::LayoutOption>(ReadSetting(QStringLiteral("layout_option")).toInt());
     Settings::values.swap_screen = ReadSetting(QStringLiteral("swap_screen"), false).toBool();
+    Settings::values.upright_screen = ReadSetting(QStringLiteral("upright_screen"), false).toBool();
     Settings::values.custom_layout = ReadSetting(QStringLiteral("custom_layout"), false).toBool();
     Settings::values.custom_top_left = ReadSetting(QStringLiteral("custom_top_left"), 0).toInt();
     Settings::values.custom_top_top = ReadSetting(QStringLiteral("custom_top_top"), 0).toInt();
@@ -430,9 +436,9 @@ void Config::ReadRendererValues() {
     Settings::values.shaders_accurate_mul =
         ReadSetting(QStringLiteral("shaders_accurate_mul"), false).toBool();
     Settings::values.use_shader_jit = ReadSetting(QStringLiteral("use_shader_jit"), true).toBool();
+    Settings::values.use_vsync_new = ReadSetting(QStringLiteral("use_vsync_new"), true).toBool();
     Settings::values.resolution_factor =
         static_cast<u16>(ReadSetting(QStringLiteral("resolution_factor"), 1).toInt());
-    Settings::values.vsync_enabled = ReadSetting(QStringLiteral("vsync_enabled"), false).toBool();
     Settings::values.use_frame_limit =
         ReadSetting(QStringLiteral("use_frame_limit"), true).toBool();
     Settings::values.frame_limit = ReadSetting(QStringLiteral("frame_limit"), 100).toInt();
@@ -708,11 +714,13 @@ void Config::SaveControlValues() {
 }
 
 void Config::SaveUtilityValues() {
-    qt_config->beginGroup("Utility");
+    qt_config->beginGroup(QStringLiteral("Utility"));
 
-    WriteSetting("dump_textures", Settings::values.dump_textures, false);
-    WriteSetting("custom_textures", Settings::values.custom_textures, false);
-    WriteSetting("preload_textures", Settings::values.preload_textures, false);
+    WriteSetting(QStringLiteral("dump_textures"), Settings::values.dump_textures, false);
+    WriteSetting(QStringLiteral("custom_textures"), Settings::values.custom_textures, false);
+    WriteSetting(QStringLiteral("preload_textures"), Settings::values.preload_textures, false);
+    WriteSetting(QStringLiteral("use_disk_shader_cache"), Settings::values.use_disk_shader_cache,
+                 true);
 
     qt_config->endGroup();
 }
@@ -763,6 +771,7 @@ void Config::SaveLayoutValues() {
     WriteSetting(QStringLiteral("filter_mode"), Settings::values.filter_mode, true);
     WriteSetting(QStringLiteral("layout_option"), static_cast<int>(Settings::values.layout_option));
     WriteSetting(QStringLiteral("swap_screen"), Settings::values.swap_screen, false);
+    WriteSetting(QStringLiteral("upright_screen"), Settings::values.upright_screen, false);
     WriteSetting(QStringLiteral("custom_layout"), Settings::values.custom_layout, false);
     WriteSetting(QStringLiteral("custom_top_left"), Settings::values.custom_top_left, 0);
     WriteSetting(QStringLiteral("custom_top_top"), Settings::values.custom_top_top, 0);
@@ -859,8 +868,8 @@ void Config::SaveRendererValues() {
     WriteSetting(QStringLiteral("shaders_accurate_mul"), Settings::values.shaders_accurate_mul,
                  false);
     WriteSetting(QStringLiteral("use_shader_jit"), Settings::values.use_shader_jit, true);
+    WriteSetting(QStringLiteral("use_vsync_new"), Settings::values.use_vsync_new, true);
     WriteSetting(QStringLiteral("resolution_factor"), Settings::values.resolution_factor, 1);
-    WriteSetting(QStringLiteral("vsync_enabled"), Settings::values.vsync_enabled, false);
     WriteSetting(QStringLiteral("use_frame_limit"), Settings::values.use_frame_limit, true);
     WriteSetting(QStringLiteral("frame_limit"), Settings::values.frame_limit, 100);
 

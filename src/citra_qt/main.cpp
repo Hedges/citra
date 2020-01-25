@@ -5,12 +5,11 @@
 #include <clocale>
 #include <memory>
 #include <thread>
-#include <glad/glad.h>
-#define QT_NO_OPENGL
 #include <QDesktopWidget>
 #include <QFileDialog>
 #include <QFutureWatcher>
 #include <QMessageBox>
+#include <QOpenGLFunctions_3_3_Core>
 #include <QSysInfo>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QtGui>
@@ -48,6 +47,7 @@
 #include "citra_qt/discord.h"
 #include "citra_qt/game_list.h"
 #include "citra_qt/hotkeys.h"
+#include "citra_qt/loading_screen.h"
 #include "citra_qt/main.h"
 #include "citra_qt/multiplayer/state.h"
 #include "citra_qt/qt_image_interface.h"
@@ -72,6 +72,7 @@
 #include "core/file_sys/archive_extsavedata.h"
 #include "core/file_sys/archive_source_sd_savedata.h"
 #include "core/frontend/applets/default_applets.h"
+#include "core/frontend/scope_acquire_context.h"
 #include "core/gdbstub/gdbstub.h"
 #include "core/hle/service/fs/archive.h"
 #include "core/hle/service/nfc/nfc.h"
@@ -222,6 +223,17 @@ void GMainWindow::InitializeWidgets() {
     ui.horizontalLayout->addWidget(game_list_placeholder);
     game_list_placeholder->setVisible(false);
 
+    loading_screen = new LoadingScreen(this);
+    loading_screen->hide();
+    ui.horizontalLayout->addWidget(loading_screen);
+    connect(loading_screen, &LoadingScreen::Hidden, [&] {
+        loading_screen->Clear();
+        if (emulation_running) {
+            render_window->show();
+            render_window->setFocus();
+        }
+    });
+
     multiplayer_state = new MultiplayerState(this, game_list->GetModel(), ui.action_Leave_Room,
                                              ui.action_Show_Room);
     multiplayer_state->setVisible(false);
@@ -265,7 +277,7 @@ void GMainWindow::InitializeWidgets() {
     statusBar()->setVisible(true);
 
     // Removes an ugly inner border from the status bar widgets under Linux
-    setStyleSheet("QStatusBar::item{border: none;}");
+    setStyleSheet(QStringLiteral("QStatusBar::item{border: none;}"));
 
     QActionGroup* actionGroup_ScreenLayouts = new QActionGroup(this);
     actionGroup_ScreenLayouts->addAction(ui.action_Screen_Layout_Default);
@@ -373,98 +385,111 @@ void GMainWindow::InitializeRecentFileMenuActions() {
 void GMainWindow::InitializeHotkeys() {
     hotkey_registry.LoadHotkeys();
 
+    const QString main_window = QStringLiteral("Main Window");
+    const QString load_file = QStringLiteral("Load File");
+    const QString exit_citra = QStringLiteral("Exit Citra");
+    const QString stop_emulation = QStringLiteral("Stop Emulation");
+    const QString toggle_filter_bar = QStringLiteral("Toggle Filter Bar");
+    const QString toggle_status_bar = QStringLiteral("Toggle Status Bar");
+    const QString fullscreen = QStringLiteral("Fullscreen");
+
     ui.action_Show_Filter_Bar->setShortcut(
-        hotkey_registry.GetKeySequence("Main Window", "Toggle Filter Bar"));
+        hotkey_registry.GetKeySequence(main_window, toggle_filter_bar));
     ui.action_Show_Filter_Bar->setShortcutContext(
-        hotkey_registry.GetShortcutContext("Main Window", "Toggle Filter Bar"));
+        hotkey_registry.GetShortcutContext(main_window, toggle_filter_bar));
 
     ui.action_Show_Status_Bar->setShortcut(
-        hotkey_registry.GetKeySequence("Main Window", "Toggle Status Bar"));
+        hotkey_registry.GetKeySequence(main_window, toggle_status_bar));
     ui.action_Show_Status_Bar->setShortcutContext(
-        hotkey_registry.GetShortcutContext("Main Window", "Toggle Status Bar"));
+        hotkey_registry.GetShortcutContext(main_window, toggle_status_bar));
 
-    connect(hotkey_registry.GetHotkey("Main Window", "Load File", this), &QShortcut::activated,
+    connect(hotkey_registry.GetHotkey(main_window, load_file, this), &QShortcut::activated,
             ui.action_Load_File, &QAction::trigger);
 
-    connect(hotkey_registry.GetHotkey("Main Window", "Stop Emulation", this), &QShortcut::activated,
+    connect(hotkey_registry.GetHotkey(main_window, stop_emulation, this), &QShortcut::activated,
             ui.action_Stop, &QAction::trigger);
 
-    connect(hotkey_registry.GetHotkey("Main Window", "Exit Citra", this), &QShortcut::activated,
+    connect(hotkey_registry.GetHotkey(main_window, exit_citra, this), &QShortcut::activated,
             ui.action_Exit, &QAction::trigger);
 
-    connect(hotkey_registry.GetHotkey("Main Window", "Continue/Pause Emulation", this),
-            &QShortcut::activated, this, [&] {
-                if (emulation_running) {
-                    if (emu_thread->IsRunning()) {
-                        OnPauseGame();
-                    } else {
-                        OnStartGame();
-                    }
+    connect(
+        hotkey_registry.GetHotkey(main_window, QStringLiteral("Continue/Pause Emulation"), this),
+        &QShortcut::activated, this, [&] {
+            if (emulation_running) {
+                if (emu_thread->IsRunning()) {
+                    OnPauseGame();
+                } else {
+                    OnStartGame();
                 }
-            });
-    connect(hotkey_registry.GetHotkey("Main Window", "Restart Emulation", this),
+            }
+        });
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Restart Emulation"), this),
             &QShortcut::activated, this, [this] {
                 if (!Core::System::GetInstance().IsPoweredOn())
                     return;
                 BootGame(QString(game_path));
             });
-    connect(hotkey_registry.GetHotkey("Main Window", "Swap Screens", render_window),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Swap Screens"), render_window),
             &QShortcut::activated, ui.action_Screen_Layout_Swap_Screens, &QAction::trigger);
-    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Screen Layout", render_window),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Rotate Screens Upright"),
+                                      render_window),
+            &QShortcut::activated, ui.action_Screen_Layout_Upright_Screens, &QAction::trigger);
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Toggle Screen Layout"),
+                                      render_window),
             &QShortcut::activated, this, &GMainWindow::ToggleScreenLayout);
-    connect(hotkey_registry.GetHotkey("Main Window", "Fullscreen", render_window),
+    connect(hotkey_registry.GetHotkey(main_window, fullscreen, render_window),
             &QShortcut::activated, ui.action_Fullscreen, &QAction::trigger);
-    connect(hotkey_registry.GetHotkey("Main Window", "Fullscreen", render_window),
+    connect(hotkey_registry.GetHotkey(main_window, fullscreen, render_window),
             &QShortcut::activatedAmbiguously, ui.action_Fullscreen, &QAction::trigger);
-    connect(hotkey_registry.GetHotkey("Main Window", "Exit Fullscreen", this),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Exit Fullscreen"), this),
             &QShortcut::activated, this, [&] {
                 if (emulation_running) {
                     ui.action_Fullscreen->setChecked(false);
                     ToggleFullscreen();
                 }
             });
-    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Speed Limit", this),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Toggle Speed Limit"), this),
             &QShortcut::activated, this, [&] {
                 Settings::values.use_frame_limit = !Settings::values.use_frame_limit;
                 UpdateStatusBar();
             });
-    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Texture Dumping", this),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Toggle Texture Dumping"), this),
             &QShortcut::activated, this,
             [&] { Settings::values.dump_textures = !Settings::values.dump_textures; });
     // We use "static" here in order to avoid capturing by lambda due to a MSVC bug, which makes
     // the variable hold a garbage value after this function exits
     static constexpr u16 SPEED_LIMIT_STEP = 5;
-    connect(hotkey_registry.GetHotkey("Main Window", "Increase Speed Limit", this),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Increase Speed Limit"), this),
             &QShortcut::activated, this, [&] {
                 if (Settings::values.frame_limit < 9999 - SPEED_LIMIT_STEP) {
                     Settings::values.frame_limit += SPEED_LIMIT_STEP;
                     UpdateStatusBar();
                 }
             });
-    connect(hotkey_registry.GetHotkey("Main Window", "Decrease Speed Limit", this),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Decrease Speed Limit"), this),
             &QShortcut::activated, this, [&] {
                 if (Settings::values.frame_limit > SPEED_LIMIT_STEP) {
                     Settings::values.frame_limit -= SPEED_LIMIT_STEP;
                     UpdateStatusBar();
                 }
             });
-    connect(hotkey_registry.GetHotkey("Main Window", "Toggle Frame Advancing", this),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Toggle Frame Advancing"), this),
             &QShortcut::activated, ui.action_Enable_Frame_Advancing, &QAction::trigger);
-    connect(hotkey_registry.GetHotkey("Main Window", "Advance Frame", this), &QShortcut::activated,
-            ui.action_Advance_Frame, &QAction::trigger);
-    connect(hotkey_registry.GetHotkey("Main Window", "Load Amiibo", this), &QShortcut::activated,
-            this, [&] {
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Advance Frame"), this),
+            &QShortcut::activated, ui.action_Advance_Frame, &QAction::trigger);
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Load Amiibo"), this),
+            &QShortcut::activated, this, [&] {
                 if (ui.action_Load_Amiibo->isEnabled()) {
                     OnLoadAmiibo();
                 }
             });
-    connect(hotkey_registry.GetHotkey("Main Window", "Remove Amiibo", this), &QShortcut::activated,
-            this, [&] {
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Remove Amiibo"), this),
+            &QShortcut::activated, this, [&] {
                 if (ui.action_Remove_Amiibo->isEnabled()) {
                     OnRemoveAmiibo();
                 }
             });
-    connect(hotkey_registry.GetHotkey("Main Window", "Capture Screenshot", this),
+    connect(hotkey_registry.GetHotkey(main_window, QStringLiteral("Capture Screenshot"), this),
             &QShortcut::activated, this, [&] {
                 if (emu_thread->IsRunning()) {
                     OnCaptureScreenshot();
@@ -603,10 +628,17 @@ void GMainWindow::ConnectMenuEvents() {
             &MultiplayerState::OnOpenNetworkRoom);
 
     ui.action_Fullscreen->setShortcut(
-        hotkey_registry.GetHotkey("Main Window", "Fullscreen", this)->key());
+        hotkey_registry
+            .GetHotkey(QStringLiteral("Main Window"), QStringLiteral("Fullscreen"), this)
+            ->key());
     ui.action_Screen_Layout_Swap_Screens->setShortcut(
-        hotkey_registry.GetHotkey("Main Window", "Swap Screens", this)->key());
+        hotkey_registry
+            .GetHotkey(QStringLiteral("Main Window"), QStringLiteral("Swap Screens"), this)
+            ->key());
     ui.action_Screen_Layout_Swap_Screens->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    ui.action_Screen_Layout_Upright_Screens->setShortcut(
+        hotkey_registry.GetHotkey("Main Window", "Rotate Screens Upright", this)->key());
+    ui.action_Screen_Layout_Upright_Screens->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     connect(ui.action_Fullscreen, &QAction::triggered, this, &GMainWindow::ToggleFullscreen);
     connect(ui.action_Screen_Layout_Default, &QAction::triggered, this,
             &GMainWindow::ChangeScreenLayout);
@@ -618,6 +650,8 @@ void GMainWindow::ConnectMenuEvents() {
             &GMainWindow::ChangeScreenLayout);
     connect(ui.action_Screen_Layout_Swap_Screens, &QAction::triggered, this,
             &GMainWindow::OnSwapScreens);
+    connect(ui.action_Screen_Layout_Upright_Screens, &QAction::triggered, this,
+            &GMainWindow::OnRotateScreens);
 
     // Movie
     connect(ui.action_Record_Movie, &QAction::triggered, this, &GMainWindow::OnRecordMovie);
@@ -655,8 +689,9 @@ void GMainWindow::ConnectMenuEvents() {
     // Help
     connect(ui.action_Open_Citra_Folder, &QAction::triggered, this,
             &GMainWindow::OnOpenCitraFolder);
-    connect(ui.action_FAQ, &QAction::triggered,
-            []() { QDesktopServices::openUrl(QUrl("https://citra-emu.org/wiki/faq/")); });
+    connect(ui.action_FAQ, &QAction::triggered, []() {
+        QDesktopServices::openUrl(QUrl(QStringLiteral("https://citra-emu.org/wiki/faq/")));
+    });
     connect(ui.action_About, &QAction::triggered, this, &GMainWindow::OnMenuAboutCitra);
     connect(ui.action_Check_For_Updates, &QAction::triggered, this,
             &GMainWindow::OnCheckForUpdates);
@@ -768,13 +803,14 @@ bool GMainWindow::LoadROM(const QString& filename) {
         ShutdownGame();
 
     render_window->InitRenderTarget();
-    render_window->MakeCurrent();
+
+    Frontend::ScopeAcquireContext scope(*render_window);
 
     const QString below_gl33_title = tr("OpenGL 3.3 Unsupported");
     const QString below_gl33_message = tr("Your GPU may not support OpenGL 3.3, or you do not "
                                           "have the latest graphics driver.");
 
-    if (!gladLoadGL()) {
+    if (!QOpenGLContext::globalShareContext()->versionFunctions<QOpenGLFunctions_3_3_Core>()) {
         QMessageBox::critical(this, below_gl33_title, below_gl33_message);
         return false;
     }
@@ -870,7 +906,7 @@ bool GMainWindow::LoadROM(const QString& filename) {
 }
 
 void GMainWindow::BootGame(const QString& filename) {
-    if (filename.endsWith(".cia")) {
+    if (filename.endsWith(QStringLiteral(".cia"))) {
         const auto answer = QMessageBox::question(
             this, tr("CIA must be installed before usage"),
             tr("Before using this CIA, you must install it. Do you want to install it now?"),
@@ -893,9 +929,8 @@ void GMainWindow::BootGame(const QString& filename) {
         return;
 
     // Create and start the emulation thread
-    emu_thread = std::make_unique<EmuThread>(render_window);
+    emu_thread = std::make_unique<EmuThread>(*render_window);
     emit EmulationStarting(emu_thread.get());
-    render_window->moveContext();
     emu_thread->start();
 
     connect(render_window, &GRenderWindow::Closed, this, &GMainWindow::OnStopGame);
@@ -910,6 +945,9 @@ void GMainWindow::BootGame(const QString& filename) {
     connect(emu_thread.get(), &EmuThread::DebugModeLeft, waitTreeWidget,
             &WaitTreeWidget::OnDebugModeLeft, Qt::BlockingQueuedConnection);
 
+    connect(emu_thread.get(), &EmuThread::LoadProgress, loading_screen,
+            &LoadingScreen::OnLoadProgress, Qt::QueuedConnection);
+
     // Update the GUI
     registersWidget->OnDebugModeEntered();
     if (ui.action_Single_Window_Mode->isChecked()) {
@@ -918,8 +956,12 @@ void GMainWindow::BootGame(const QString& filename) {
     }
     status_bar_update_timer.start(2000);
 
+    // show and hide the render_window to create the context
     render_window->show();
-    render_window->setFocus();
+    render_window->hide();
+
+    loading_screen->Prepare(Core::System::GetInstance().GetAppLoader());
+    loading_screen->show();
 
     emulation_running = true;
     if (ui.action_Fullscreen->isChecked()) {
@@ -996,6 +1038,8 @@ void GMainWindow::ShutdownGame() {
     ui.action_Advance_Frame->setEnabled(false);
     ui.action_Capture_Screenshot->setEnabled(false);
     render_window->hide();
+    loading_screen->hide();
+    loading_screen->Clear();
     if (game_list->isEmpty())
         game_list_placeholder->show();
     else
@@ -1019,6 +1063,9 @@ void GMainWindow::ShutdownGame() {
     UpdateWindowTitle();
 
     game_path.clear();
+
+    // When closing the game, destroy the GLWindow to clear the context after the game is closed
+    render_window->ReleaseRenderTarget();
 }
 
 void GMainWindow::StoreRecentFile(const QString& filename) {
@@ -1036,7 +1083,7 @@ void GMainWindow::UpdateRecentFiles() {
         std::min(UISettings::values.recent_files.size(), max_recent_files_item);
 
     for (int i = 0; i < num_recent_files; i++) {
-        const QString text = QString("&%1. %2").arg(i + 1).arg(
+        const QString text = QStringLiteral("&%1. %2").arg(i + 1).arg(
             QFileInfo(UISettings::values.recent_files[i]).fileName());
         actions_recent_files[i]->setText(text);
         actions_recent_files[i]->setData(UISettings::values.recent_files[i]);
@@ -1127,12 +1174,12 @@ void GMainWindow::OnGameListNavigateToGamedbEntry(u64 program_id,
 
 void GMainWindow::OnGameListOpenDirectory(const QString& directory) {
     QString path;
-    if (directory == "INSTALLED") {
+    if (directory == QStringLiteral("INSTALLED")) {
         path = QString::fromStdString(FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir) +
                                       "Nintendo "
                                       "3DS/00000000000000000000000000000000/"
                                       "00000000000000000000000000000000/title/00040000");
-    } else if (directory == "SYSTEM") {
+    } else if (directory == QStringLiteral("SYSTEM")) {
         path = QString::fromStdString(FileUtil::GetUserPath(FileUtil::UserPath::NANDDir) +
                                       "00000000000000000000000000000000/title/00040010");
     } else {
@@ -1166,8 +1213,8 @@ void GMainWindow::OnGameListShowList(bool show) {
 };
 
 void GMainWindow::OnMenuLoadFile() {
-    const QString extensions =
-        QString("*.").append(GameList::supported_file_extensions.join(" *."));
+    const QString extensions = QStringLiteral("*.").append(
+        GameList::supported_file_extensions.join(QStringLiteral(" *.")));
     const QString file_filter = tr("3DS Executable (%1);;All Files (*.*)",
                                    "%1 is an identifier for the 3DS executable file extensions.")
                                     .arg(extensions);
@@ -1316,6 +1363,10 @@ void GMainWindow::OnStopGame() {
     ShutdownGame();
 }
 
+void GMainWindow::OnLoadComplete() {
+    loading_screen->OnLoadComplete();
+}
+
 void GMainWindow::OnMenuReportCompatibility() {
     if (!Settings::values.citra_token.empty() && !Settings::values.citra_username.empty()) {
         CompatDB compatdb{this};
@@ -1432,6 +1483,11 @@ void GMainWindow::OnSwapScreens() {
     Settings::Apply();
 }
 
+void GMainWindow::OnRotateScreens() {
+    Settings::values.upright_screen = ui.action_Screen_Layout_Upright_Screens->isChecked();
+    Settings::Apply();
+}
+
 void GMainWindow::OnCheats() {
     CheatDialog cheat_dialog(this);
     cheat_dialog.exec();
@@ -1467,9 +1523,9 @@ void GMainWindow::OnConfigure() {
 }
 
 void GMainWindow::OnLoadAmiibo() {
-    const QString extensions{"*.bin"};
+    const QString extensions{QStringLiteral("*.bin")};
     const QString file_filter = tr("Amiibo File (%1);; All Files (*.*)").arg(extensions);
-    const QString filename = QFileDialog::getOpenFileName(this, tr("Load Amiibo"), "", file_filter);
+    const QString filename = QFileDialog::getOpenFileName(this, tr("Load Amiibo"), {}, file_filter);
 
     if (filename.isEmpty()) {
         return;
@@ -1688,7 +1744,7 @@ void GMainWindow::OnCaptureScreenshot() {
     QFileDialog png_dialog(this, tr("Capture Screenshot"), UISettings::values.screenshot_path,
                            tr("PNG Image (*.png)"));
     png_dialog.setAcceptMode(QFileDialog::AcceptSave);
-    png_dialog.setDefaultSuffix("png");
+    png_dialog.setDefaultSuffix(QStringLiteral("png"));
     if (png_dialog.exec()) {
         const QString path = png_dialog.selectedFiles().first();
         if (!path.isEmpty()) {
@@ -1781,11 +1837,11 @@ void GMainWindow::OnCoreError(Core::System::ResultStatus result, std::string det
         if (!details.empty()) {
             message = common_message.arg(QString::fromStdString(details));
         } else {
-            message = common_message.arg("A system archive");
+            message = common_message.arg(tr("A system archive"));
         }
 
         title = tr("System Archive Not Found");
-        status_message = "System Archive Missing";
+        status_message = tr("System Archive Missing");
     } else {
         title = tr("Fatal Error");
         message =
@@ -1793,7 +1849,7 @@ void GMainWindow::OnCoreError(Core::System::ResultStatus result, std::string det
                "<a href='https://community.citra-emu.org/t/how-to-upload-the-log-file/296'>Check "
                "the log</a> for details."
                "<br/>Continuing emulation may result in crashes and bugs.");
-        status_message = "Fatal Error encountered";
+        status_message = tr("Fatal Error encountered");
     }
 
     QMessageBox message_box;
@@ -1869,20 +1925,39 @@ void GMainWindow::closeEvent(QCloseEvent* event) {
     QWidget::closeEvent(event);
 }
 
-static bool IsSingleFileDropEvent(QDropEvent* event) {
-    const QMimeData* mimeData = event->mimeData();
-    return mimeData->hasUrls() && mimeData->urls().length() == 1;
+static bool IsSingleFileDropEvent(const QMimeData* mime) {
+    return mime->hasUrls() && mime->urls().length() == 1;
 }
 
-void GMainWindow::dropEvent(QDropEvent* event) {
-    if (!IsSingleFileDropEvent(event)) {
-        return;
+static const std::array<std::string, 8> AcceptedExtensions = {"cci",  "3ds", "cxi", "bin",
+                                                              "3dsx", "app", "elf", "axf"};
+
+static bool IsCorrectFileExtension(const QMimeData* mime) {
+    const QString& filename = mime->urls().at(0).toLocalFile();
+    return std::find(AcceptedExtensions.begin(), AcceptedExtensions.end(),
+                     QFileInfo(filename).suffix().toStdString()) != AcceptedExtensions.end();
+}
+
+static bool IsAcceptableDropEvent(QDropEvent* event) {
+    return IsSingleFileDropEvent(event->mimeData()) && IsCorrectFileExtension(event->mimeData());
+}
+
+void GMainWindow::AcceptDropEvent(QDropEvent* event) {
+    if (IsAcceptableDropEvent(event)) {
+        event->setDropAction(Qt::DropAction::LinkAction);
+        event->accept();
+    }
+}
+
+bool GMainWindow::DropAction(QDropEvent* event) {
+    if (!IsAcceptableDropEvent(event)) {
+        return false;
     }
 
     const QMimeData* mime_data = event->mimeData();
     const QString& filename = mime_data->urls().at(0).toLocalFile();
 
-    if (emulation_running && QFileInfo(filename).suffix() == "bin") {
+    if (emulation_running && QFileInfo(filename).suffix() == QStringLiteral("bin")) {
         // Amiibo
         LoadAmiibo(filename);
     } else {
@@ -1891,16 +1966,19 @@ void GMainWindow::dropEvent(QDropEvent* event) {
             BootGame(filename);
         }
     }
+    return true;
+}
+
+void GMainWindow::dropEvent(QDropEvent* event) {
+    DropAction(event);
 }
 
 void GMainWindow::dragEnterEvent(QDragEnterEvent* event) {
-    if (IsSingleFileDropEvent(event)) {
-        event->acceptProposedAction();
-    }
+    AcceptDropEvent(event);
 }
 
 void GMainWindow::dragMoveEvent(QDragMoveEvent* event) {
-    event->acceptProposedAction();
+    AcceptDropEvent(event);
 }
 
 bool GMainWindow::ConfirmChangeGame() {
@@ -1919,32 +1997,38 @@ void GMainWindow::filterBarSetChecked(bool state) {
 }
 
 void GMainWindow::UpdateUITheme() {
+    const QString default_icons = QStringLiteral(":/icons/default");
+    const QString& current_theme = UISettings::values.theme;
+    const bool is_default_theme = current_theme == QString::fromUtf8(UISettings::themes[0].second);
     QStringList theme_paths(default_theme_paths);
-    if (UISettings::values.theme != UISettings::themes[0].second &&
-        !UISettings::values.theme.isEmpty()) {
-        const QString theme_uri(":" + UISettings::values.theme + "/style.qss");
+
+    if (is_default_theme || current_theme.isEmpty()) {
+        qApp->setStyleSheet({});
+        setStyleSheet({});
+        theme_paths.append(default_icons);
+        QIcon::setThemeName(default_icons);
+    } else {
+        const QString theme_uri(QLatin1Char{':'} + current_theme + QStringLiteral("/style.qss"));
         QFile f(theme_uri);
         if (f.open(QFile::ReadOnly | QFile::Text)) {
             QTextStream ts(&f);
             qApp->setStyleSheet(ts.readAll());
-            GMainWindow::setStyleSheet(ts.readAll());
+            setStyleSheet(ts.readAll());
         } else {
             LOG_ERROR(Frontend, "Unable to set style, stylesheet file not found");
         }
-        theme_paths.append(QStringList{":/icons/default", ":/icons/" + UISettings::values.theme});
-        QIcon::setThemeName(":/icons/" + UISettings::values.theme);
-    } else {
-        qApp->setStyleSheet("");
-        GMainWindow::setStyleSheet("");
-        theme_paths.append(QStringList{":/icons/default"});
-        QIcon::setThemeName(":/icons/default");
+
+        const QString theme_name = QStringLiteral(":/icons/") + current_theme;
+        theme_paths.append({default_icons, theme_name});
+        QIcon::setThemeName(theme_name);
     }
+
     QIcon::setThemeSearchPaths(theme_paths);
 }
 
 void GMainWindow::LoadTranslation() {
     // If the selected language is English, no need to install any translation
-    if (UISettings::values.language == "en") {
+    if (UISettings::values.language == QStringLiteral("en")) {
         return;
     }
 
@@ -1952,21 +2036,21 @@ void GMainWindow::LoadTranslation() {
 
     if (UISettings::values.language.isEmpty()) {
         // If the selected language is empty, use system locale
-        loaded = translator.load(QLocale(), "", "", ":/languages/");
+        loaded = translator.load(QLocale(), {}, {}, QStringLiteral(":/languages/"));
     } else {
         // Otherwise load from the specified file
-        loaded = translator.load(UISettings::values.language, ":/languages/");
+        loaded = translator.load(UISettings::values.language, QStringLiteral(":/languages/"));
     }
 
     if (loaded) {
         qApp->installTranslator(&translator);
     } else {
-        UISettings::values.language = "en";
+        UISettings::values.language = QStringLiteral("en");
     }
 }
 
 void GMainWindow::OnLanguageChanged(const QString& locale) {
-    if (UISettings::values.language != "en") {
+    if (UISettings::values.language != QStringLiteral("en")) {
         qApp->removeTranslator(&translator);
     }
 
@@ -2007,6 +2091,7 @@ void GMainWindow::SyncMenuUISettings() {
     ui.action_Screen_Layout_Side_by_Side->setChecked(Settings::values.layout_option ==
                                                      Settings::LayoutOption::SideScreen);
     ui.action_Screen_Layout_Swap_Screens->setChecked(Settings::values.swap_screen);
+    ui.action_Screen_Layout_Upright_Screens->setChecked(Settings::values.upright_screen);
 }
 
 void GMainWindow::RetranslateStatusBar() {
@@ -2047,14 +2132,23 @@ int main(int argc, char* argv[]) {
     SCOPE_EXIT({ MicroProfileShutdown(); });
 
     // Init settings params
-    QCoreApplication::setOrganizationName("Citra team");
-    QCoreApplication::setApplicationName("Citra");
+    QCoreApplication::setOrganizationName(QStringLiteral("Citra team"));
+    QCoreApplication::setApplicationName(QStringLiteral("Citra"));
+
+    QSurfaceFormat format;
+    format.setVersion(3, 3);
+    format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setSwapInterval(0);
+    // TODO: expose a setting for buffer value (ie default/single/double/triple)
+    format.setSwapBehavior(QSurfaceFormat::DefaultSwapBehavior);
+    QSurfaceFormat::setDefaultFormat(format);
 
 #ifdef __APPLE__
     std::string bin_path = FileUtil::GetBundleDirectory() + DIR_SEP + "..";
     chdir(bin_path.c_str());
 #endif
-
+    QCoreApplication::setAttribute(Qt::AA_DontCheckOpenGLContextThreadAffinity);
+    QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
     QApplication app(argc, argv);
 
     // Qt changes the locale and causes issues in float conversion using std::to_string() when
