@@ -115,6 +115,9 @@ add_executable(citra-qt
     game_list_worker.h
     hotkeys.cpp
     hotkeys.h
+    loading_screen.cpp
+    loading_screen.h
+    loading_screen.ui
     main.cpp
     main.h
     main.ui
@@ -241,6 +244,10 @@ target_compile_definitions(citra-qt PRIVATE
 
     # Disable implicit QString->QUrl conversions to enforce use of proper resolving functions.
     -DQT_NO_URL_CAST_FROM_STRING
+
+    # Disable implicit conversions from/to C strings
+    -DQT_NO_CAST_FROM_ASCII
+    -DQT_NO_CAST_TO_ASCII
 )
 
 if (CITRA_ENABLE_COMPATIBILITY_REPORTING)

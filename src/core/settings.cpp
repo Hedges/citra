@@ -28,6 +28,7 @@ void Apply() {
     VideoCore::g_shader_jit_enabled = values.use_shader_jit;
     VideoCore::g_hw_shader_enabled = values.use_hw_shader;
     VideoCore::g_hw_shader_accurate_mul = values.shaders_accurate_mul;
+    VideoCore::g_use_disk_shader_cache = values.use_disk_shader_cache;
 
     if (VideoCore::g_renderer) {
         VideoCore::g_renderer->UpdateCurrentFramebufferLayout();
@@ -86,8 +87,10 @@ void LogSettings() {
     LogSetting("Stereoscopy_Factor3d", Settings::values.factor_3d);
     LogSetting("Layout_LayoutOption", static_cast<int>(Settings::values.layout_option));
     LogSetting("Layout_SwapScreen", Settings::values.swap_screen);
+    LogSetting("Layout_UprightScreen", Settings::values.upright_screen);
     LogSetting("Utility_DumpTextures", Settings::values.dump_textures);
     LogSetting("Utility_CustomTextures", Settings::values.custom_textures);
+    LogSetting("Utility_UseDiskShaderCache", Settings::values.use_disk_shader_cache);
     LogSetting("Audio_EnableDspLle", Settings::values.enable_dsp_lle);
     LogSetting("Audio_EnableDspLleMultithread", Settings::values.enable_dsp_lle_multithread);
     LogSetting("Audio_OutputEngine", Settings::values.sink_id);

@@ -32,6 +32,7 @@ class GraphicsVertexShaderWidget;
 class GRenderWindow;
 class IPCRecorderWidget;
 class LLEServiceModulesWidget;
+class LoadingScreen;
 class MicroProfileDialog;
 class MultiplayerState;
 class ProfilerWidget;
@@ -75,6 +76,7 @@ public:
 
 public slots:
     void OnAppFocusStateChanged(Qt::ApplicationState state);
+    void OnLoadComplete();
 
 signals:
 
@@ -187,6 +189,7 @@ private slots:
     void ChangeScreenLayout();
     void ToggleScreenLayout();
     void OnSwapScreens();
+    void OnRotateScreens();
     void OnCheats();
     void ShowFullscreen();
     void HideFullscreen();
@@ -220,6 +223,7 @@ private:
     GRenderWindow* render_window;
 
     GameListPlaceholder* game_list_placeholder;
+    LoadingScreen* loading_screen;
 
     // Status bar elements
     QProgressBar* progress_bar = nullptr;

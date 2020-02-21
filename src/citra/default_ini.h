@@ -117,6 +117,10 @@ use_shader_jit =
 # 0: Off, 1 (default): On
 use_vsync_new =
 
+# Reduce stuttering by storing and loading generated shaders to disk
+# 0: Off, 1 (default. On)
+use_disk_shader_cache =
+
 # Resolution scale factor
 # 0: Auto (scales resolution to window size), 1: Native 3DS screen resolution, Otherwise a scale
 # factor for the 3DS resolution
@@ -137,7 +141,7 @@ bg_blue =
 bg_green =
 
 # Whether and how Stereoscopic 3D should be rendered
-# 0 (default): Off, 1: Side by Side, 2: Anaglyph
+# 0 (default): Off, 1: Side by Side, 2: Anaglyph, 3: Interlaced
 render_3d =
 
 # Change 3D Intensity
@@ -178,6 +182,10 @@ custom_bottom_bottom =
 # For example, if Single Screen is chosen, setting this to 1 will display the bottom screen instead of the top screen.
 # 0 (default): Top Screen is prominent, 1: Bottom Screen is prominent
 swap_screen =
+
+# Toggle upright orientation, for book style games.
+# 0 (default): Off, 1: On
+upright_screen =
 
 # Dumps textures as PNG to dump/textures/[Title ID]/.
 # 0 (default): Off, 1: On

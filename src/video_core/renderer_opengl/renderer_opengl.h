@@ -48,7 +48,7 @@ public:
     ~RendererOpenGL() override;
 
     /// Initialize the renderer
-    Core::System::ResultStatus Init() override;
+    VideoCore::ResultStatus Init() override;
 
     /// Shutdown the renderer
     void ShutDown() override;
@@ -77,9 +77,12 @@ private:
                                      const GPU::Regs::FramebufferConfig& framebuffer);
     void DrawScreens(const Layout::FramebufferLayout& layout);
     void DrawSingleScreenRotated(const ScreenInfo& screen_info, float x, float y, float w, float h);
-    void DrawSingleScreenAnaglyphRotated(const ScreenInfo& screen_info_l,
-                                         const ScreenInfo& screen_info_r, float x, float y, float w,
-                                         float h);
+    void DrawSingleScreen(const ScreenInfo& screen_info, float x, float y, float w, float h);
+    void DrawSingleScreenStereoRotated(const ScreenInfo& screen_info_l,
+                                       const ScreenInfo& screen_info_r, float x, float y, float w,
+                                       float h);
+    void DrawSingleScreenStereo(const ScreenInfo& screen_info_l, const ScreenInfo& screen_info_r,
+                                float x, float y, float w, float h);
     void UpdateFramerate();
 
     // Loads framebuffer from emulated memory into the display information structure
