@@ -117,6 +117,20 @@
         </item>
        </layout>
       </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_3">
+        <item>
+         <widget class="QLabel" name="label_5">
+          <property name="text">
+           <string>Texture Filter</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="texture_filter_combobox"/>
+        </item>
+       </layout>
+      </item>
      </layout>
     </widget>
    </item>

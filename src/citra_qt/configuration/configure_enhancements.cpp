@@ -8,10 +8,15 @@
 #include "core/settings.h"
 #include "ui_configure_enhancements.h"
 #include "video_core/renderer_opengl/post_processing_opengl.h"
+#include "video_core/renderer_opengl/texture_filters/texture_filterer.h"
 
 ConfigureEnhancements::ConfigureEnhancements(QWidget* parent)
     : QWidget(parent), ui(new Ui::ConfigureEnhancements) {
     ui->setupUi(this);
+
+    for (const auto& filter : OpenGL::TextureFilterer::GetFilterNames())
+        ui->texture_filter_combobox->addItem(QString::fromStdString(filter.data()));
+
     SetConfiguration();
 
     ui->layoutBox->setEnabled(!Settings::values.custom_layout);
@@ -52,6 +57,13 @@ void ConfigureEnhancements::SetConfiguration() {
     ui->factor_3d->setValue(Settings::values.factor_3d);
     updateShaders(Settings::values.render_3d);
     ui->toggle_linear_filter->setChecked(Settings::values.filter_mode);
+    int tex_filter_idx = ui->texture_filter_combobox->findText(
+        QString::fromStdString(Settings::values.texture_filter_name));
+    if (tex_filter_idx == -1) {
+        ui->texture_filter_combobox->setCurrentIndex(0);
+    } else {
+        ui->texture_filter_combobox->setCurrentIndex(tex_filter_idx);
+    }
     ui->layout_combobox->setCurrentIndex(static_cast<int>(Settings::values.layout_option));
     ui->swap_screen->setChecked(Settings::values.swap_screen);
     ui->toggle_disk_shader_cache->setChecked(Settings::values.use_hw_shader &&
@@ -101,6 +113,7 @@ void ConfigureEnhancements::ApplyConfiguration() {
     Settings::values.pp_shader_name =
         ui->shader_combobox->itemText(ui->shader_combobox->currentIndex()).toStdString();
     Settings::values.filter_mode = ui->toggle_linear_filter->isChecked();
+    Settings::values.texture_filter_name = ui->texture_filter_combobox->currentText().toStdString();
     Settings::values.layout_option =
         static_cast<Settings::LayoutOption>(ui->layout_combobox->currentIndex());
     Settings::values.swap_screen = ui->swap_screen->isChecked();

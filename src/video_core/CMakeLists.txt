@@ -23,6 +23,8 @@ add_library(video_core STATIC
     regs_texturing.h
     renderer_base.cpp
     renderer_base.h
+    renderer_opengl/frame_dumper_opengl.cpp
+    renderer_opengl/frame_dumper_opengl.h
     renderer_opengl/gl_rasterizer.cpp
     renderer_opengl/gl_rasterizer.h
     renderer_opengl/gl_rasterizer_cache.cpp
@@ -43,6 +45,8 @@ add_library(video_core STATIC
     renderer_opengl/gl_state.h
     renderer_opengl/gl_stream_buffer.cpp
     renderer_opengl/gl_stream_buffer.h
+    renderer_opengl/gl_surface_params.cpp
+    renderer_opengl/gl_surface_params.h
     renderer_opengl/gl_vars.cpp
     renderer_opengl/gl_vars.h
     renderer_opengl/pica_to_gl.h
@@ -50,6 +54,18 @@ add_library(video_core STATIC
     renderer_opengl/post_processing_opengl.h
     renderer_opengl/renderer_opengl.cpp
     renderer_opengl/renderer_opengl.h
+    renderer_opengl/texture_filters/anime4k/anime4k_ultrafast.cpp
+    renderer_opengl/texture_filters/anime4k/anime4k_ultrafast.h
+    renderer_opengl/texture_filters/bicubic/bicubic.cpp
+    renderer_opengl/texture_filters/bicubic/bicubic.h
+    renderer_opengl/texture_filters/texture_filter_base.h
+    renderer_opengl/texture_filters/texture_filterer.cpp
+    renderer_opengl/texture_filters/texture_filterer.h
+    renderer_opengl/texture_filters/xbrz/xbrz_freescale.cpp
+    renderer_opengl/texture_filters/xbrz/xbrz_freescale.h
+    #temporary, move these back in alphabetical order before merging
+    renderer_opengl/gl_format_reinterpreter.cpp
+    renderer_opengl/gl_format_reinterpreter.h
     shader/debug_data.h
     shader/shader.cpp
     shader/shader.h
@@ -79,6 +95,35 @@ add_library(video_core STATIC
     video_core.cpp
     video_core.h
 )
+
+set(SHADER_FILES
+    renderer_opengl/texture_filters/anime4k/refine.frag
+    renderer_opengl/texture_filters/anime4k/refine.vert
+    renderer_opengl/texture_filters/anime4k/x_gradient.frag
+    renderer_opengl/texture_filters/anime4k/y_gradient.frag
+    renderer_opengl/texture_filters/anime4k/y_gradient.vert
+    renderer_opengl/texture_filters/bicubic/bicubic.frag
+    renderer_opengl/texture_filters/tex_coord.vert
+    renderer_opengl/texture_filters/xbrz/xbrz_freescale.frag
+    renderer_opengl/texture_filters/xbrz/xbrz_freescale.vert
+)
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/generate_shaders.cmake)
+
+foreach(shader_file ${SHADER_FILES})
+    get_filename_component(shader_file_name ${shader_file} NAME)
+    GetShaderHeaderFile(${shader_file_name})
+    list(APPEND SHADER_HEADERS ${shader_header_file})
+endforeach()
+
+add_custom_target(shaders
+    BYPRODUCTS ${SHADER_HEADERS}
+    COMMAND cmake -P ${CMAKE_CURRENT_SOURCE_DIR}/generate_shaders.cmake
+    SOURCES ${SHADER_FILES}
+)
+add_dependencies(video_core shaders)
+
+target_include_directories(video_core PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 if(ARCHITECTURE_x86_64)
     target_sources(video_core

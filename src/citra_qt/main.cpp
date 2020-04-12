@@ -87,6 +87,10 @@
 #include "citra_qt/discord_impl.h"
 #endif
 
+#ifdef ENABLE_FFMPEG_VIDEO_DUMPER
+#include "citra_qt/dumping/dumping_dialog.h"
+#endif
+
 #ifdef QT_STATICPLUGIN
 Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin);
 #endif
@@ -97,6 +101,8 @@ extern "C" {
 __declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;
 }
 #endif
+
+constexpr int default_mouse_timeout = 2500;
 
 /**
  * "Callouts" are one-time instructional messages shown to the user. In the config settings, there
@@ -189,6 +195,14 @@ GMainWindow::GMainWindow() : config(new Config()), emu_thread(nullptr) {
 
     // Show one-time "callout" messages to the user
     ShowTelemetryCallout();
+
+    // make sure menubar has the arrow cursor instead of inheriting from this
+    ui.menubar->setCursor(QCursor());
+    statusBar()->setCursor(QCursor());
+
+    mouse_hide_timer.setInterval(default_mouse_timeout);
+    connect(&mouse_hide_timer, &QTimer::timeout, this, &GMainWindow::HideMouseCursor);
+    connect(ui.menubar, &QMenuBar::hovered, this, &GMainWindow::ShowMouseCursor);
 
     if (UISettings::values.check_for_update_on_start) {
         CheckForUpdates();
@@ -568,6 +582,7 @@ void GMainWindow::ConnectWidgetEvents() {
     connect(game_list, &GameList::OpenFolderRequested, this, &GMainWindow::OnGameListOpenFolder);
     connect(game_list, &GameList::NavigateToGamedbEntryRequested, this,
             &GMainWindow::OnGameListNavigateToGamedbEntry);
+    connect(game_list, &GameList::DumpRomFSRequested, this, &GMainWindow::OnGameListDumpRomFS);
     connect(game_list, &GameList::AddDirectory, this, &GMainWindow::OnGameListAddDirectory);
     connect(game_list_placeholder, &GameListPlaceholder::AddDirectory, this,
             &GMainWindow::OnGameListAddDirectory);
@@ -678,9 +693,7 @@ void GMainWindow::ConnectMenuEvents() {
     connect(ui.action_Capture_Screenshot, &QAction::triggered, this,
             &GMainWindow::OnCaptureScreenshot);
 
-#ifndef ENABLE_FFMPEG_VIDEO_DUMPER
-    ui.action_Dump_Video->setEnabled(false);
-#endif
+#ifdef ENABLE_FFMPEG_VIDEO_DUMPER
     connect(ui.action_Dump_Video, &QAction::triggered, [this] {
         if (ui.action_Dump_Video->isChecked()) {
             OnStartVideoDumping();
@@ -688,6 +701,9 @@ void GMainWindow::ConnectMenuEvents() {
             OnStopVideoDumping();
         }
     });
+#else
+    ui.action_Dump_Video->setEnabled(false);
+#endif
 
     // Help
     connect(ui.action_Open_Citra_Folder, &QAction::triggered, this,
@@ -959,6 +975,13 @@ void GMainWindow::BootGame(const QString& filename) {
     }
     status_bar_update_timer.start(2000);
 
+    if (UISettings::values.hide_mouse) {
+        mouse_hide_timer.start();
+        setMouseTracking(true);
+        ui.centralwidget->setMouseTracking(true);
+        ui.menubar->setMouseTracking(true);
+    }
+
     // show and hide the render_window to create the context
     render_window->show();
     render_window->hide();
@@ -974,8 +997,14 @@ void GMainWindow::BootGame(const QString& filename) {
     if (video_dumping_on_start) {
         Layout::FramebufferLayout layout{
             Layout::FrameLayoutFromResolutionScale(VideoCore::GetResolutionScaleFactor())};
-        Core::System::GetInstance().VideoDumper().StartDumping(video_dumping_path.toStdString(),
-                                                               "webm", layout);
+        if (!Core::System::GetInstance().VideoDumper().StartDumping(
+                video_dumping_path.toStdString(), layout)) {
+
+            QMessageBox::critical(
+                this, tr("Citra"),
+                tr("Could not start video dumping.<br>Refer to the log for details."));
+            ui.action_Dump_Video->setChecked(false);
+        }
         video_dumping_on_start = false;
         video_dumping_path.clear();
     }
@@ -991,11 +1020,13 @@ void GMainWindow::ShutdownGame() {
         HideFullscreen();
     }
 
+#ifdef ENABLE_FFMPEG_VIDEO_DUMPER
     if (Core::System::GetInstance().VideoDumper().IsDumping()) {
         game_shutdown_delayed = true;
         OnStopVideoDumping();
         return;
     }
+#endif
 
     AllowOSSleep();
 
@@ -1048,6 +1079,10 @@ void GMainWindow::ShutdownGame() {
     else
         game_list->show();
     game_list->setFilterFocus();
+
+    setMouseTracking(false);
+    ui.centralwidget->setMouseTracking(false);
+    ui.menubar->setMouseTracking(false);
 
     // Disable status bar updates
     status_bar_update_timer.stop();
@@ -1144,6 +1179,11 @@ void GMainWindow::OnGameListOpenFolder(u64 data_id, GameListOpenTarget target) {
         path = fmt::format("{}textures/{:016X}/",
                            FileUtil::GetUserPath(FileUtil::UserPath::LoadDir), data_id);
         break;
+    case GameListOpenTarget::MODS:
+        open_target = "Mods";
+        path = fmt::format("{}mods/{:016X}/", FileUtil::GetUserPath(FileUtil::UserPath::LoadDir),
+                           data_id);
+        break;
     default:
         LOG_ERROR(Frontend, "Unexpected target {}", static_cast<int>(target));
         return;
@@ -1173,6 +1213,46 @@ void GMainWindow::OnGameListNavigateToGamedbEntry(u64 program_id,
         directory = it->second.second;
 
     QDesktopServices::openUrl(QUrl(QStringLiteral("https://citra-emu.org/game/") + directory));
+}
+
+void GMainWindow::OnGameListDumpRomFS(QString game_path, u64 program_id) {
+    auto* dialog = new QProgressDialog(tr("Dumping..."), tr("Cancel"), 0, 0, this);
+    dialog->setWindowModality(Qt::WindowModal);
+    dialog->setWindowFlags(dialog->windowFlags() &
+                           ~(Qt::WindowCloseButtonHint | Qt::WindowContextHelpButtonHint));
+    dialog->setCancelButton(nullptr);
+    dialog->setMinimumDuration(0);
+    dialog->setValue(0);
+
+    const auto base_path = fmt::format(
+        "{}romfs/{:016X}", FileUtil::GetUserPath(FileUtil::UserPath::DumpDir), program_id);
+    const auto update_path =
+        fmt::format("{}romfs/{:016X}", FileUtil::GetUserPath(FileUtil::UserPath::DumpDir),
+                    program_id | 0x0004000e00000000);
+    using FutureWatcher = QFutureWatcher<std::pair<Loader::ResultStatus, Loader::ResultStatus>>;
+    auto* future_watcher = new FutureWatcher(this);
+    connect(future_watcher, &FutureWatcher::finished,
+            [this, dialog, base_path, update_path, future_watcher] {
+                dialog->hide();
+                const auto& [base, update] = future_watcher->result();
+                if (base != Loader::ResultStatus::Success) {
+                    QMessageBox::critical(
+                        this, tr("Citra"),
+                        tr("Could not dump base RomFS.\nRefer to the log for details."));
+                    return;
+                }
+                QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(base_path)));
+                if (update == Loader::ResultStatus::Success) {
+                    QDesktopServices::openUrl(
+                        QUrl::fromLocalFile(QString::fromStdString(update_path)));
+                }
+            });
+
+    auto future = QtConcurrent::run([game_path, base_path, update_path] {
+        std::unique_ptr<Loader::AppLoader> loader = Loader::GetLoader(game_path.toStdString());
+        return std::make_pair(loader->DumpRomFS(base_path), loader->DumpUpdateRomFS(update_path));
+    });
+    future_watcher->setFuture(future);
 }
 
 void GMainWindow::OnGameListOpenDirectory(const QString& directory) {
@@ -1421,7 +1501,7 @@ void GMainWindow::ToggleWindowMode() {
         // Render in the main window...
         render_window->BackupGeometry();
         ui.horizontalLayout->addWidget(render_window);
-        render_window->setFocusPolicy(Qt::ClickFocus);
+        render_window->setFocusPolicy(Qt::StrongFocus);
         if (emulation_running) {
             render_window->setVisible(true);
             render_window->setFocus();
@@ -1519,6 +1599,16 @@ void GMainWindow::OnConfigure() {
         SyncMenuUISettings();
         game_list->RefreshGameDirectory();
         config->Save();
+        if (UISettings::values.hide_mouse && emulation_running) {
+            setMouseTracking(true);
+            ui.centralwidget->setMouseTracking(true);
+            ui.menubar->setMouseTracking(true);
+            mouse_hide_timer.start();
+        } else {
+            setMouseTracking(false);
+            ui.centralwidget->setMouseTracking(false);
+            ui.menubar->setMouseTracking(false);
+        }
     } else {
         Settings::values.input_profiles = old_input_profiles;
         Settings::LoadProfile(old_input_profile_index);
@@ -1758,18 +1848,23 @@ void GMainWindow::OnCaptureScreenshot() {
     OnStartGame();
 }
 
+#ifdef ENABLE_FFMPEG_VIDEO_DUMPER
 void GMainWindow::OnStartVideoDumping() {
-    const QString path = QFileDialog::getSaveFileName(
-        this, tr("Save Video"), UISettings::values.video_dumping_path, tr("WebM Videos (*.webm)"));
-    if (path.isEmpty()) {
+    DumpingDialog dialog(this);
+    if (dialog.exec() != QDialog::DialogCode::Accepted) {
         ui.action_Dump_Video->setChecked(false);
         return;
     }
-    UISettings::values.video_dumping_path = QFileInfo(path).path();
+    const auto path = dialog.GetFilePath();
     if (emulation_running) {
         Layout::FramebufferLayout layout{
             Layout::FrameLayoutFromResolutionScale(VideoCore::GetResolutionScaleFactor())};
-        Core::System::GetInstance().VideoDumper().StartDumping(path.toStdString(), "webm", layout);
+        if (!Core::System::GetInstance().VideoDumper().StartDumping(path.toStdString(), layout)) {
+            QMessageBox::critical(
+                this, tr("Citra"),
+                tr("Could not start video dumping.<br>Refer to the log for details."));
+            ui.action_Dump_Video->setChecked(false);
+        }
     } else {
         video_dumping_on_start = true;
         video_dumping_path = path;
@@ -1786,6 +1881,8 @@ void GMainWindow::OnStopVideoDumping() {
         const bool was_dumping = Core::System::GetInstance().VideoDumper().IsDumping();
         if (!was_dumping)
             return;
+
+        game_paused_for_dumping = emu_thread->IsRunning();
         OnPauseGame();
 
         auto future =
@@ -1795,13 +1892,15 @@ void GMainWindow::OnStopVideoDumping() {
             if (game_shutdown_delayed) {
                 game_shutdown_delayed = false;
                 ShutdownGame();
-            } else {
+            } else if (game_paused_for_dumping) {
+                game_paused_for_dumping = false;
                 OnStartGame();
             }
         });
         future_watcher->setFuture(future);
     }
 }
+#endif
 
 void GMainWindow::UpdateStatusBar() {
     if (emu_thread == nullptr) {
@@ -1824,6 +1923,30 @@ void GMainWindow::UpdateStatusBar() {
     emu_speed_label->setVisible(true);
     game_fps_label->setVisible(true);
     emu_frametime_label->setVisible(true);
+}
+
+void GMainWindow::HideMouseCursor() {
+    if (emu_thread == nullptr || UISettings::values.hide_mouse == false) {
+        mouse_hide_timer.stop();
+        ShowMouseCursor();
+        return;
+    }
+    setCursor(QCursor(Qt::BlankCursor));
+}
+
+void GMainWindow::ShowMouseCursor() {
+    unsetCursor();
+    if (emu_thread != nullptr && UISettings::values.hide_mouse) {
+        mouse_hide_timer.start();
+    }
+}
+
+void GMainWindow::mouseMoveEvent(QMouseEvent* event) {
+    ShowMouseCursor();
+}
+
+void GMainWindow::mousePressEvent(QMouseEvent* event) {
+    ShowMouseCursor();
 }
 
 void GMainWindow::OnCoreError(Core::System::ResultStatus result, std::string details) {

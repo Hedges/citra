@@ -44,40 +44,104 @@ namespace Core {
 
 System::ResultStatus System::RunLoop(bool tight_loop) {
     status = ResultStatus::Success;
-    if (!cpu_core) {
+    if (std::any_of(cpu_cores.begin(), cpu_cores.end(),
+                    [](std::shared_ptr<ARM_Interface> ptr) { return ptr == nullptr; })) {
         return ResultStatus::ErrorNotInitialized;
     }
 
     GDBStub::HandlePacket();
 
-    // If we don't have a currently active thread then don't execute instructions,
-    // instead advance to the next event and try to yield to the next thread
-    auto sched_thread = kernel->GetThreadManager().GetCurrentThread();
-    if (sched_thread == nullptr) {
-        LOG_TRACE(Core_ARM11, "Idling");
-        timing->Idle();
-        timing->Advance();
-        PrepareReschedule();
-    } else if (GDBStub::GetCpuHaltFlag()) {
-        // A program break was issued to GDB which, by default, (in full-stop mode)
-        // halts the CPU completely. No thread may run until further notice.
-        // It's similar to pausing the emulated system, but it keeps GDBStub active.
-        //
-        // HACK: Don't advance idle-cycles here. If we do, games seem likely to deadlock.
-        return ResultStatus::Success;
-    } else {
-        if (GDBStub::GetThreadStepFlag(sched_thread)) {
-            // GDBStub::Halt();
-            GDBStub::Break();
-            tight_loop = false;
+    // All cores should have executed the same amount of ticks. If this is not the case an event was
+    // scheduled with a cycles_into_future smaller then the current downcount.
+    // So we have to get those cores to the same global time first
+    u64 global_ticks = timing->GetGlobalTicks();
+    s64 max_delay = 0;
+    std::shared_ptr<ARM_Interface> current_core_to_execute = nullptr;
+    for (auto& cpu_core : cpu_cores) {
+        if (cpu_core->GetTimer()->GetTicks() < global_ticks) {
+            s64 delay = global_ticks - cpu_core->GetTimer()->GetTicks();
+            cpu_core->GetTimer()->Advance(delay);
+            if (max_delay < delay) {
+                max_delay = delay;
+                current_core_to_execute = cpu_core;
+            }
         }
+    }
 
-        timing->Advance();
-        if (tight_loop) {
-            cpu_core->Run();
+    if (max_delay > 0) {
+        LOG_TRACE(Core_ARM11, "Core {} running (delayed) for {} ticks",
+                  current_core_to_execute->GetID(),
+                  current_core_to_execute->GetTimer()->GetDowncount());
+        running_core = current_core_to_execute.get();
+        kernel->SetRunningCPU(current_core_to_execute);
+        auto sched_thread = kernel->GetCurrentThreadManager().GetCurrentThread();
+        if (sched_thread == nullptr) {
+            LOG_TRACE(Core_ARM11, "Core {} idling", current_core_to_execute->GetID());
+            current_core_to_execute->GetTimer()->Idle();
+            PrepareReschedule();
+        } else if (GDBStub::GetCpuHaltFlag()) {
+            // A program break was issued to GDB which, by default, (in full-stop mode)
+            // halts the CPU completely. No thread may run until further notice.
+            // It's similar to pausing the emulated system, but it keeps GDBStub active.
+            //
+            // HACK: Don't advance idle-cycles here. If we do, games seem likely to deadlock.
+            return ResultStatus::Success;
         } else {
-            cpu_core->Step();
+            if (GDBStub::GetThreadStepFlag(sched_thread)) {
+                // GDBStub::Halt();
+                GDBStub::Break();
+                tight_loop = false;
+            }
+            if (tight_loop) {
+                current_core_to_execute->Run();
+            } else {
+                current_core_to_execute->Step();
+            }
         }
+    } else {
+        // Now all cores are at the same global time. So we will run them one after the other
+        // with a max slice that is the minimum of all max slices of all cores
+        // TODO: Make special check for idle since we can easily revert the time of idle cores
+        s64 max_slice = Timing::MAX_SLICE_LENGTH;
+        for (const auto& cpu_core : cpu_cores) {
+            max_slice = std::min(max_slice, cpu_core->GetTimer()->GetMaxSliceLength());
+        }
+        for (auto& cpu_core : cpu_cores) {
+            cpu_core->GetTimer()->Advance(max_slice);
+        }
+        for (auto& cpu_core : cpu_cores) {
+            LOG_TRACE(Core_ARM11, "Core {} running for {} ticks", cpu_core->GetID(),
+                      cpu_core->GetTimer()->GetDowncount());
+            running_core = cpu_core.get();
+            kernel->SetRunningCPU(cpu_core);
+            // If we don't have a currently active thread then don't execute instructions,
+            // instead advance to the next event and try to yield to the next thread
+            auto sched_thread = kernel->GetCurrentThreadManager().GetCurrentThread();
+            if (sched_thread == nullptr) {
+                LOG_TRACE(Core_ARM11, "Core {} idling", cpu_core->GetID());
+                cpu_core->GetTimer()->Idle();
+                PrepareReschedule();
+            } else if (GDBStub::GetCpuHaltFlag()) {
+                // A program break was issued to GDB which, by default, (in full-stop mode)
+                // halts the CPU completely. No thread may run until further notice.
+                // It's similar to pausing the emulated system, but it keeps GDBStub active.
+                //
+                // HACK: Don't advance idle-cycles here. If we do, games seem likely to deadlock.
+                return ResultStatus::Success;
+            } else {
+                if (GDBStub::GetThreadStepFlag(sched_thread)) {
+                    // GDBStub::Halt();
+                    GDBStub::Break();
+                    tight_loop = false;
+                }
+                if (tight_loop) {
+                    cpu_core->Run();
+                } else {
+                    cpu_core->Step();
+                }
+            }
+        }
+        timing->AddToGlobalTicks(max_slice);
     }
 
     HW::Update();
@@ -120,7 +184,9 @@ System::ResultStatus System::Load(Frontend::EmuWindow& emu_window, const std::st
     }
 
     ASSERT(system_mode.first);
-    ResultStatus init_result{Init(emu_window, *system_mode.first)};
+    auto n3ds_mode = app_loader->LoadKernelN3dsMode();
+    ASSERT(n3ds_mode.first);
+    ResultStatus init_result{Init(emu_window, *system_mode.first, *n3ds_mode.first)};
     if (init_result != ResultStatus::Success) {
         LOG_CRITICAL(Core, "Failed to initialize system (Error {})!",
                      static_cast<u32>(init_result));
@@ -172,7 +238,7 @@ System::ResultStatus System::Load(Frontend::EmuWindow& emu_window, const std::st
 }
 
 void System::PrepareReschedule() {
-    cpu_core->PrepareReschedule();
+    running_core->PrepareReschedule();
     reschedule_pending = true;
 }
 
@@ -186,31 +252,50 @@ void System::Reschedule() {
     }
 
     reschedule_pending = false;
-    kernel->GetThreadManager().Reschedule();
+    for (const auto& core : cpu_cores) {
+        LOG_TRACE(Core_ARM11, "Reschedule core {}", core->GetID());
+        kernel->GetThreadManager(core->GetID()).Reschedule();
+    }
 }
 
-System::ResultStatus System::Init(Frontend::EmuWindow& emu_window, u32 system_mode) {
+System::ResultStatus System::Init(Frontend::EmuWindow& emu_window, u32 system_mode, u8 n3ds_mode) {
     LOG_DEBUG(HW_Memory, "initialized OK");
+
+    std::size_t num_cores = 2;
+    if (Settings::values.is_new_3ds) {
+        num_cores = 4;
+    }
 
     memory = std::make_unique<Memory::MemorySystem>();
 
-    timing = std::make_unique<Timing>();
+    timing = std::make_unique<Timing>(num_cores, Settings::values.cpu_clock_percentage);
 
-    kernel = std::make_unique<Kernel::KernelSystem>(*memory, *timing,
-                                                    [this] { PrepareReschedule(); }, system_mode);
+    kernel = std::make_unique<Kernel::KernelSystem>(
+        *memory, *timing, [this] { PrepareReschedule(); }, system_mode, num_cores, n3ds_mode);
 
     if (Settings::values.use_cpu_jit) {
 #ifdef ARCHITECTURE_x86_64
-        cpu_core = std::make_shared<ARM_Dynarmic>(this, *memory, USER32MODE);
+        for (std::size_t i = 0; i < num_cores; ++i) {
+            cpu_cores.push_back(
+                std::make_shared<ARM_Dynarmic>(this, *memory, i, timing->GetTimer(i)));
+        }
 #else
-        cpu_core = std::make_shared<ARM_DynCom>(this, *memory, USER32MODE);
+        for (std::size_t i = 0; i < num_cores; ++i) {
+            cpu_cores.push_back(
+                std::make_shared<ARM_DynCom>(this, *memory, USER32MODE, i, timing->GetTimer(i)));
+        }
         LOG_WARNING(Core, "CPU JIT requested, but Dynarmic not available");
 #endif
     } else {
-        cpu_core = std::make_shared<ARM_DynCom>(this, *memory, USER32MODE);
+        for (std::size_t i = 0; i < num_cores; ++i) {
+            cpu_cores.push_back(
+                std::make_shared<ARM_DynCom>(this, *memory, USER32MODE, i, timing->GetTimer(i)));
+        }
     }
+    running_core = cpu_cores[0].get();
 
-    kernel->SetCPU(cpu_core);
+    kernel->SetCPUs(cpu_cores);
+    kernel->SetRunningCPU(cpu_cores[0]);
 
     if (Settings::values.enable_dsp_lle) {
         dsp_core = std::make_unique<AudioCore::DspLle>(*memory,
@@ -233,7 +318,13 @@ System::ResultStatus System::Init(Frontend::EmuWindow& emu_window, u32 system_mo
 
     HW::Init(*memory);
     Service::Init(*this);
-    GDBStub::Init();
+    GDBStub::DeferStart();
+
+#ifdef ENABLE_FFMPEG_VIDEO_DUMPER
+    video_dumper = std::make_unique<VideoDumper::FFmpegBackend>();
+#else
+    video_dumper = std::make_unique<VideoDumper::NullBackend>();
+#endif
 
     VideoCore::ResultStatus result = VideoCore::Init(emu_window, *memory);
     if (result != VideoCore::ResultStatus::Success) {
@@ -247,13 +338,9 @@ System::ResultStatus System::Init(Frontend::EmuWindow& emu_window, u32 system_mo
         }
     }
 
-#ifdef ENABLE_FFMPEG_VIDEO_DUMPER
-    video_dumper = std::make_unique<VideoDumper::FFmpegBackend>();
-#else
-    video_dumper = std::make_unique<VideoDumper::NullBackend>();
-#endif
-
     LOG_DEBUG(Core, "Initialized OK");
+
+    initalized = true;
 
     return ResultStatus::Success;
 }
@@ -358,9 +445,10 @@ void System::Shutdown() {
     perf_stats.reset();
     rpc_server.reset();
     cheat_engine.reset();
+    archive_manager.reset();
     service_manager.reset();
     dsp_core.reset();
-    cpu_core.reset();
+    cpu_cores.clear();
     kernel.reset();
     timing.reset();
     app_loader.reset();

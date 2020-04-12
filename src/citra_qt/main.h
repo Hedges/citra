@@ -169,6 +169,7 @@ private slots:
     void OnGameListOpenFolder(u64 program_id, GameListOpenTarget target);
     void OnGameListNavigateToGamedbEntry(u64 program_id,
                                          const CompatibilityList& compatibility_list);
+    void OnGameListDumpRomFS(QString game_path, u64 program_id);
     void OnGameListOpenDirectory(const QString& directory);
     void OnGameListAddDirectory();
     void OnGameListShowList(bool show);
@@ -199,8 +200,10 @@ private slots:
     void OnPlayMovie();
     void OnStopRecordingPlayback();
     void OnCaptureScreenshot();
+#ifdef ENABLE_FFMPEG_VIDEO_DUMPER
     void OnStartVideoDumping();
     void OnStopVideoDumping();
+#endif
     void OnCoreError(Core::System::ResultStatus, std::string);
     /// Called whenever a user selects Help->About Citra
     void OnMenuAboutCitra();
@@ -217,6 +220,8 @@ private:
     void UpdateWindowTitle();
     void RetranslateStatusBar();
     void InstallCIA(QStringList filepaths);
+    void HideMouseCursor();
+    void ShowMouseCursor();
 
     Ui::MainWindow ui;
 
@@ -245,6 +250,7 @@ private:
     QString game_path;
 
     bool auto_paused = false;
+    QTimer mouse_hide_timer;
 
     // Movie
     bool movie_record_on_start = false;
@@ -255,6 +261,8 @@ private:
     QString video_dumping_path;
     // Whether game shutdown is delayed due to video dumping
     bool game_shutdown_delayed = false;
+    // Whether game was paused due to stopping video dumping
+    bool game_paused_for_dumping = false;
 
     // Debugger panes
     ProfilerWidget* profilerWidget;
@@ -286,6 +294,8 @@ protected:
     void dropEvent(QDropEvent* event) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
 };
 
 Q_DECLARE_METATYPE(std::size_t);

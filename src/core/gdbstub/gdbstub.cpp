@@ -98,45 +98,31 @@ constexpr char target_xml[] =
          and the CPSR in the "g" packet.  -->
 
     <reg name="cpsr" bitsize="32" regnum="25"/>
-
-    <reg name="s0" bitsize="32"/>
-    <reg name="s1" bitsize="32"/>
-    <reg name="s2" bitsize="32"/>
-    <reg name="s3" bitsize="32"/>
-    <reg name="s4" bitsize="32"/>
-    <reg name="s5" bitsize="32"/>
-    <reg name="s6" bitsize="32"/>
-    <reg name="s7" bitsize="32"/>
-    <reg name="s8" bitsize="32"/>
-    <reg name="s9" bitsize="32"/>
-    <reg name="s10" bitsize="32"/>
-    <reg name="s11" bitsize="32"/>
-    <reg name="s12" bitsize="32"/>
-    <reg name="s13" bitsize="32"/>
-    <reg name="s14" bitsize="32"/>
-    <reg name="s15" bitsize="32"/>
-    <reg name="s16" bitsize="32"/>
-    <reg name="s17" bitsize="32"/>
-    <reg name="s18" bitsize="32"/>
-    <reg name="s19" bitsize="32"/>
-    <reg name="s20" bitsize="32"/>
-    <reg name="s21" bitsize="32"/>
-    <reg name="s22" bitsize="32"/>
-    <reg name="s23" bitsize="32"/>
-    <reg name="s24" bitsize="32"/>
-    <reg name="s25" bitsize="32"/>
-    <reg name="s26" bitsize="32"/>
-    <reg name="s27" bitsize="32"/>
-    <reg name="s28" bitsize="32"/>
-    <reg name="s29" bitsize="32"/>
-    <reg name="s30" bitsize="32"/>
-    <reg name="s31" bitsize="32"/>
+  </feature>
+  <feature name="org.gnu.gdb.arm.vfp">
+    <reg name="d0" bitsize="64" type="float"/>
+    <reg name="d1" bitsize="64" type="float"/>
+    <reg name="d2" bitsize="64" type="float"/>
+    <reg name="d3" bitsize="64" type="float"/>
+    <reg name="d4" bitsize="64" type="float"/>
+    <reg name="d5" bitsize="64" type="float"/>
+    <reg name="d6" bitsize="64" type="float"/>
+    <reg name="d7" bitsize="64" type="float"/>
+    <reg name="d8" bitsize="64" type="float"/>
+    <reg name="d9" bitsize="64" type="float"/>
+    <reg name="d10" bitsize="64" type="float"/>
+    <reg name="d11" bitsize="64" type="float"/>
+    <reg name="d12" bitsize="64" type="float"/>
+    <reg name="d13" bitsize="64" type="float"/>
+    <reg name="d14" bitsize="64" type="float"/>
+    <reg name="d15" bitsize="64" type="float"/>
     <reg name="fpscr" bitsize="32" type="int" group="float"/>
   </feature>
 </target>
 )";
 
 int gdbserver_socket = -1;
+bool defer_start = false;
 
 u8 command_buffer[GDB_BUFFER_SIZE];
 u32 command_length;
@@ -176,10 +162,14 @@ BreakpointMap breakpoints_write;
 } // Anonymous namespace
 
 static Kernel::Thread* FindThreadById(int id) {
-    const auto& threads = Core::System::GetInstance().Kernel().GetThreadManager().GetThreadList();
-    for (auto& thread : threads) {
-        if (thread->GetThreadId() == static_cast<u32>(id)) {
-            return thread.get();
+    u32 num_cores = Core::GetNumCores();
+    for (u32 i = 0; i < num_cores; ++i) {
+        const auto& threads =
+            Core::System::GetInstance().Kernel().GetThreadManager(i).GetThreadList();
+        for (auto& thread : threads) {
+            if (thread->GetThreadId() == static_cast<u32>(id)) {
+                return thread.get();
+            }
         }
     }
     return nullptr;
@@ -222,8 +212,6 @@ static u64 FpuRead(std::size_t id, Kernel::Thread* thread = nullptr) {
         return ret;
     } else if (id == FPSCR_REGISTER) {
         return thread->context->GetFpscr();
-    } else if (id == FPEXC_REGISTER) {
-        return thread->context->GetFpexc();
     } else {
         return 0;
     }
@@ -239,8 +227,6 @@ static void FpuWrite(std::size_t id, u64 val, Kernel::Thread* thread = nullptr) 
         thread->context->SetFpuRegister(2 * (id - D0_REGISTER) + 1, static_cast<u32>(val >> 32));
     } else if (id == FPSCR_REGISTER) {
         return thread->context->SetFpscr(static_cast<u32>(val));
-    } else if (id == FPEXC_REGISTER) {
-        return thread->context->SetFpexc(static_cast<u32>(val));
     }
 }
 
@@ -384,7 +370,7 @@ static u8 ReadByte() {
     std::size_t received_size = recv(gdbserver_socket, reinterpret_cast<char*>(&c), 1, MSG_WAITALL);
     if (received_size != 1) {
         LOG_ERROR(Debug_GDBStub, "recv failed : {}", received_size);
-        Shutdown(128 + 6 /*SIGABRT*/);
+        Shutdown();
     }
 
     return c;
@@ -434,7 +420,10 @@ static void RemoveBreakpoint(BreakpointType type, VAddr addr) {
         Core::System::GetInstance().Memory().WriteBlock(
             *Core::System::GetInstance().Kernel().GetCurrentProcess(), bp->second.addr,
             bp->second.inst.data(), bp->second.inst.size());
-        Core::CPU().ClearInstructionCache();
+        u32 num_cores = Core::GetNumCores();
+        for (u32 i = 0; i < num_cores; ++i) {
+            Core::GetCore(i).ClearInstructionCache();
+        }
     }
     p.erase(addr);
 }
@@ -536,7 +525,7 @@ static void SendReply(const char* reply) {
         int sent_size = send(gdbserver_socket, reinterpret_cast<char*>(ptr), left, 0);
         if (sent_size < 0) {
             LOG_ERROR(Debug_GDBStub, "gdb: send failed");
-            return Shutdown(128 + 6 /*SIGABRT*/);
+            return Shutdown();
         }
 
         left -= sent_size;
@@ -560,10 +549,13 @@ static void HandleQuery() {
         SendReply(target_xml);
     } else if (strncmp(query, "fThreadInfo", strlen("fThreadInfo")) == 0) {
         std::string val = "m";
-        const auto& threads =
-            Core::System::GetInstance().Kernel().GetThreadManager().GetThreadList();
-        for (const auto& thread : threads) {
-            val += fmt::format("{:x},", thread->GetThreadId());
+        u32 num_cores = Core::GetNumCores();
+        for (u32 i = 0; i < num_cores; ++i) {
+            const auto& threads =
+                Core::System::GetInstance().Kernel().GetThreadManager(i).GetThreadList();
+            for (const auto& thread : threads) {
+                val += fmt::format("{:x},", thread->GetThreadId());
+            }
         }
         val.pop_back();
         SendReply(val.c_str());
@@ -573,11 +565,14 @@ static void HandleQuery() {
         std::string buffer;
         buffer += "l<?xml version=\"1.0\"?>";
         buffer += "<threads>";
-        const auto& threads =
-            Core::System::GetInstance().Kernel().GetThreadManager().GetThreadList();
-        for (const auto& thread : threads) {
-            buffer += fmt::format(R"*(<thread id="{:x}" name="Thread {:x}"></thread>)*",
-                                  thread->GetThreadId(), thread->GetThreadId());
+        u32 num_cores = Core::GetNumCores();
+        for (u32 i = 0; i < num_cores; ++i) {
+            const auto& threads =
+                Core::System::GetInstance().Kernel().GetThreadManager(i).GetThreadList();
+            for (const auto& thread : threads) {
+                buffer += fmt::format(R"*(<thread id="{:x}" name="Thread {:x}"></thread>)*",
+                                      thread->GetThreadId(), thread->GetThreadId());
+            }
         }
         buffer += "</threads>";
         SendReply(buffer.c_str());
@@ -639,9 +634,9 @@ static void SendSignal(Kernel::Thread* thread, u32 signal, bool full = true) {
     if (full) {
 
         buffer = fmt::format("T{:02x}{:02x}:{:08x};{:02x}:{:08x};{:02x}:{:08x}", latest_signal,
-                             PC_REGISTER, htonl(Core::CPU().GetPC()), SP_REGISTER,
-                             htonl(Core::CPU().GetReg(SP_REGISTER)), LR_REGISTER,
-                             htonl(Core::CPU().GetReg(LR_REGISTER)));
+                             PC_REGISTER, htonl(Core::GetRunningCore().GetPC()), SP_REGISTER,
+                             htonl(Core::GetRunningCore().GetReg(SP_REGISTER)), LR_REGISTER,
+                             htonl(Core::GetRunningCore().GetReg(LR_REGISTER)));
     } else {
         buffer = fmt::format("T{:02x}", latest_signal);
     }
@@ -744,8 +739,6 @@ static void ReadRegister() {
         LongToGdbHex(reply, FpuRead(id, current_thread));
     } else if (id == FPSCR_REGISTER) {
         IntToGdbHex(reply, static_cast<u32>(FpuRead(id, current_thread)));
-    } else if (id == FPEXC_REGISTER) {
-        IntToGdbHex(reply, static_cast<u32>(FpuRead(id, current_thread)));
     } else {
         return SendReply("E01");
     }
@@ -771,16 +764,12 @@ static void ReadRegisters() {
     bufptr += 8;
 
     for (u32 reg = D0_REGISTER; reg < FPSCR_REGISTER; reg++) {
-        LongToGdbHex(bufptr + (reg-D0_REGISTER) * 16, FpuRead(reg, current_thread));
+        LongToGdbHex(bufptr + reg * 16, FpuRead(reg, current_thread));
     }
 
     bufptr += 16 * 16;
 
     IntToGdbHex(bufptr, static_cast<u32>(FpuRead(FPSCR_REGISTER, current_thread)));
-
-    //bufptr += 8;
-
-    //IntToGdbHex(bufptr, static_cast<u32>(FpuRead(FPEXC_REGISTER, current_thread)));
 
     SendReply(reinterpret_cast<char*>(buffer));
 }
@@ -804,13 +793,11 @@ static void WriteRegister() {
         FpuWrite(id, GdbHexToLong(buffer_ptr), current_thread);
     } else if (id == FPSCR_REGISTER) {
         FpuWrite(id, GdbHexToInt(buffer_ptr), current_thread);
-    } else if (id == FPEXC_REGISTER) {
-        FpuWrite(id, GdbHexToInt(buffer_ptr), current_thread);
     } else {
         return SendReply("E01");
     }
 
-    Core::CPU().LoadContext(current_thread->context);
+    Core::GetRunningCore().LoadContext(current_thread->context);
 
     SendReply("OK");
 }
@@ -827,8 +814,14 @@ static void WriteRegisters() {
             RegWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
         } else if (reg == CPSR_REGISTER) {
             RegWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
+        } else if (reg == CPSR_REGISTER - 1) {
+            // Dummy FPA register, ignore
+        } else if (reg < CPSR_REGISTER) {
+            // Dummy FPA registers, ignore
+            i += 2;
         } else if (reg >= D0_REGISTER && reg < FPSCR_REGISTER) {
             FpuWrite(reg, GdbHexToLong(buffer_ptr + i * 16));
+            i++; // Skip padding
         } else if (reg == FPSCR_REGISTER) {
             FpuWrite(reg, GdbHexToInt(buffer_ptr + i * 8));
         } else if (reg == FPEXC_REGISTER) {
@@ -836,7 +829,7 @@ static void WriteRegisters() {
         }
     }
 
-    Core::CPU().LoadContext(current_thread->context);
+    Core::GetRunningCore().LoadContext(current_thread->context);
 
     SendReply("OK");
 }
@@ -893,7 +886,7 @@ static void WriteMemory() {
     GdbHexToMem(data.data(), len_pos + 1, len);
     Core::System::GetInstance().Memory().WriteBlock(
         *Core::System::GetInstance().Kernel().GetCurrentProcess(), addr, data.data(), len);
-    Core::CPU().ClearInstructionCache();
+    Core::GetRunningCore().ClearInstructionCache();
     SendReply("OK");
 }
 
@@ -907,10 +900,11 @@ void Break(bool is_memory_break) {
 static void Step() {
     if (command_length > 1) {
         RegWrite(PC_REGISTER, GdbHexToInt(command_buffer + 1), current_thread);
-        Core::CPU().LoadContext(current_thread->context);
+        Core::GetRunningCore().LoadContext(current_thread->context);
     }
     step_loop = true;
     halt_loop = false;
+    Core::GetRunningCore().ClearInstructionCache();
 }
 
 bool IsMemoryBreak() {
@@ -926,6 +920,7 @@ static void Continue() {
     memory_break = false;
     step_loop = false;
     halt_loop = false;
+    Core::GetRunningCore().ClearInstructionCache();
 }
 
 /**
@@ -951,7 +946,7 @@ static bool CommitBreakpoint(BreakpointType type, VAddr addr, u32 len) {
         Core::System::GetInstance().Memory().WriteBlock(
             *Core::System::GetInstance().Kernel().GetCurrentProcess(), addr, btrap.data(),
             btrap.size());
-        Core::CPU().ClearInstructionCache();
+        Core::GetRunningCore().ClearInstructionCache();
     }
     p.insert({addr, breakpoint});
 
@@ -1051,6 +1046,9 @@ static void RemoveBreakpoint() {
 
 void HandlePacket() {
     if (!IsConnected()) {
+        if (defer_start) {
+            ToggleServer(true);
+        }
         return;
     }
 
@@ -1076,7 +1074,7 @@ void HandlePacket() {
         SendSignal(current_thread, latest_signal);
         break;
     case 'k':
-        Shutdown(128 + 9 /*SIGKILL*/);
+        Shutdown();
         LOG_INFO(Debug_GDBStub, "killed by gdb");
         return;
     case 'g':
@@ -1139,6 +1137,10 @@ void ToggleServer(bool status) {
 
         server_enabled = status;
     }
+}
+
+void DeferStart() {
+    defer_start = true;
 }
 
 static void Init(u16 port) {
@@ -1224,6 +1226,7 @@ void Shutdown(int status) {
     if (!server_enabled) {
         return;
     }
+    defer_start = false;
 
     std::string buffer;
     buffer = fmt::format("W{:02x}", status);
@@ -1251,7 +1254,7 @@ bool IsConnected() {
 }
 
 bool GetCpuHaltFlag() {
-    return halt_loop && server_enabled;
+    return halt_loop;
 }
 
 bool GetThreadStepFlag(Kernel::Thread* thread) {
@@ -1263,13 +1266,11 @@ void SendTrap(Kernel::Thread* thread, int trap) {
         return;
     }
 
-    DEBUG_ASSERT(thread != nullptr);
-
-    step_loop = false;
+    if (!halt_loop || current_thread == thread) {
+        current_thread = thread;
+        SendSignal(thread, trap);
+    }
     halt_loop = true;
     send_trap = false;
-
-    current_thread = thread;
-    SendSignal(thread, trap);
 }
 }; // namespace GDBStub
