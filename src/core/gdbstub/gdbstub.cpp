@@ -370,7 +370,7 @@ static u8 ReadByte() {
     std::size_t received_size = recv(gdbserver_socket, reinterpret_cast<char*>(&c), 1, MSG_WAITALL);
     if (received_size != 1) {
         LOG_ERROR(Debug_GDBStub, "recv failed : {}", received_size);
-        Shutdown();
+        Shutdown(128 + 6 /*SIGABRT*/);
     }
 
     return c;
@@ -525,7 +525,7 @@ static void SendReply(const char* reply) {
         int sent_size = send(gdbserver_socket, reinterpret_cast<char*>(ptr), left, 0);
         if (sent_size < 0) {
             LOG_ERROR(Debug_GDBStub, "gdb: send failed");
-            return Shutdown();
+            return Shutdown(128 + 6 /*SIGABRT*/);
         }
 
         left -= sent_size;
@@ -1074,7 +1074,7 @@ void HandlePacket() {
         SendSignal(current_thread, latest_signal);
         break;
     case 'k':
-        Shutdown();
+        Shutdown(128 + 9 /*SIGKILL*/);
         LOG_INFO(Debug_GDBStub, "killed by gdb");
         return;
     case 'g':
