@@ -136,7 +136,7 @@ static Kernel::Thread* current_thread = nullptr;
 // so default to a port outside of that range.
 u16 gdbstub_port = 24689;
 
-bool halt_loop = true;
+bool halt_loop = false;
 bool step_loop = false;
 bool send_trap = false;
 

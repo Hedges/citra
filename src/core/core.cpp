@@ -49,7 +49,9 @@ System::ResultStatus System::RunLoop(bool tight_loop) {
         return ResultStatus::ErrorNotInitialized;
     }
 
-    GDBStub::HandlePacket();
+    if (GDBStub::IsServerEnabled()) {
+        GDBStub::HandlePacket();
+    }
 
     // All cores should have executed the same amount of ticks. If this is not the case an event was
     // scheduled with a cycles_into_future smaller then the current downcount.
