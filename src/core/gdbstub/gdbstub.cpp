@@ -661,6 +661,7 @@ static void ReadCommand() {
     } else if (c == 0x03) {
         LOG_INFO(Debug_GDBStub, "gdb: found break command\n");
         halt_loop = true;
+        Core::GetRunningCore().LoadContext(current_thread->context);
         SendSignal(current_thread, SIGTRAP);
         return;
     } else if (c != GDB_STUB_START) {
