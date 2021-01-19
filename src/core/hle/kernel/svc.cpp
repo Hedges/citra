@@ -287,7 +287,7 @@ void SVC::ExitProcess() {
     // Stop all the process threads that are currently waiting for objects.
     auto& thread_list = kernel.GetCurrentThreadManager().GetThreadList();
     for (auto& thread : thread_list) {
-        if (thread->owner_process != current_process)
+        if (thread->owner_process.lock() != current_process)
             continue;
 
         if (thread.get() == kernel.GetCurrentThreadManager().GetCurrentThread())
@@ -1048,8 +1048,7 @@ ResultCode SVC::GetProcessIdOfThread(u32* process_id, Handle thread_handle) {
     if (thread == nullptr)
         return ERR_INVALID_HANDLE;
 
-    const std::shared_ptr<Process> process = thread->owner_process;
-
+    const std::shared_ptr<Process> process = thread->owner_process.lock();
     ASSERT_MSG(process != nullptr, "Invalid parent process for thread={:#010X}", thread_handle);
 
     *process_id = process->process_id;
